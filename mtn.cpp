@@ -37,13 +37,14 @@
 
 // enable unicode functions in mingw
 #ifdef WIN32
-    #define UNICODE
-    #define _UNICODE
+//    #define UNICODE
+ //   #define _UNICODE
 #endif
 
 #include <assert.h>
 #include <ctype.h>
-#include <dirent.h>
+#include <direct.h>
+#include "direntvc.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <locale.h>
@@ -52,15 +53,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/time.h>
+//#include <sys/time.h>
 #include <time.h>
-#include <unistd.h>
+//#include <unistd.h>
+#include "getopt.h"
 
+#include <atlbase.h>
+#include <atlconv.h>
+
+extern "C"{
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
+}
 
-#include "gd.h"
+//#include "gd.h"
+#include <wand/MagickWand.h>
+
 
 #define UTF8_FILENAME_SIZE (FILENAME_MAX*4)
 
@@ -99,14 +108,14 @@ typedef struct rgb_color
 } rgb_color;
 typedef char color_str[7]; // "RRGGBB" (in hex)
 
-#define COLOR_BLACK (rgb_color){0, 0, 0}
-#define COLOR_GREY (rgb_color){128, 128, 128}
-#define COLOR_WHITE (rgb_color){255, 255, 255}
-#define COLOR_INFO (rgb_color){85, 85, 85}
+#define COLOR_BLACK /*(rgb_color)*/{0, 0, 0}
+#define COLOR_GREY /*(rgb_color)*/{128, 128, 128}
+#define COLOR_WHITE /*(rgb_color)*/{255, 255, 255}
+#define COLOR_INFO /*(rgb_color)*/{85, 85, 85}
 
 typedef struct shot
 {
-    gdImagePtr ip;
+    MagickWand *ip;
     int64_t eff_target;
     int64_t found_pts;
     double blank; // blank detection
@@ -115,7 +124,7 @@ typedef struct shot
 
 typedef struct thumbnail
 {
-    gdImagePtr out_ip;
+    MagickWand *out_ip;
     char out_filename[UTF8_FILENAME_SIZE];
     char info_filename[UTF8_FILENAME_SIZE];
     int out_saved; // 1 = out file is successfully saved
@@ -135,7 +144,7 @@ typedef struct thumbnail
 #define LOG_INFO 0
 
 /* command line options & default values */
-#define GB_A_RATIO (AVRational){0, 1}
+#define GB_A_RATIO /*(AVRational)*/{0, 1}
 AVRational gb_a_ratio = GB_A_RATIO;
 #define GB_B_BLANK 0.8
 double gb_b_blank = GB_B_BLANK;
@@ -402,7 +411,8 @@ char *rem_trailing_slash(char *str)
 return pointer to a new cropped image. the original one is freed.
 if error, return original and the original stays intact
 */
-gdImagePtr crop_image(gdImagePtr ip, int new_width, int new_height)
+/*
+MagicWand* crop_image(MagicWand *ip, int new_width, int new_height)
 {
     // cant find GD's crop, so we'll need to create a smaller image
     gdImagePtr new_ip = gdImageCreateTrueColor(new_width, new_height);
@@ -415,23 +425,45 @@ gdImagePtr crop_image(gdImagePtr ip, int new_width, int new_height)
     gdImageDestroy(ip);
     return new_ip;
 }
+*/
+double * image_string_params(char *text, char *font, double size)
+{
+  // MagickSetFont(ip, font);
+  //MagickSetPointsize(ip, size);
+  MagickWand *ip = NewMagickWand();
+  PixelWand *bg1 = NewPixelWand();
+  PixelSetColor(bg1, "#000000");
+  MagickNewImage(ip, 1024, 1024, bg1);
+  DrawingWand * dw = NewDrawingWand();
+  DrawSetFont(dw, font);
+  DrawSetFontSize(dw, size);
+  double *d = MagickQueryMultilineFontMetrics(ip, dw, text);
+  DestroyDrawingWand(dw);
+  DestroyMagickWand(ip);
+  bg1 = DestroyPixelWand(bg1);
 
+  return d;
+}
 /*
 returns height, or 0 if error
 */
 int image_string_height(char *text, char *font, double size)
 {
-    int brect[8];
+   // MagickSetFont(ip, font);
+    //MagickSetPointsize(ip, size);
+  MagickWand *ip = NewMagickWand();
+  PixelWand *bg1 = NewPixelWand();
+  PixelSetColor(bg1, "#000000");
+  MagickNewImage(ip, 1024, 1024, bg1);
+    DrawingWand * dw = NewDrawingWand();
+    DrawSetFont(dw, font);
+    DrawSetFontSize(dw, size);
+    double *d = MagickQueryMultilineFontMetrics(ip, dw, text);
+    DestroyDrawingWand(dw);
+    DestroyMagickWand(ip);
+    bg1 = DestroyPixelWand(bg1);
 
-    if (NULL == text || 0 == strlen(text)) {
-        return 0;
-    }
-
-    char *err = gdImageStringFT(NULL, &brect[0], 0, font, size, 0, 0, 0, text);
-    if (NULL != err) {
-        return 0;
-    }
-    return brect[3] - brect[7];
+    return d?d[5]:0;
 }
 
 /*
@@ -442,38 +474,42 @@ position can be:
     4: upper left
 returns NULL if success, otherwise returns error message
 */
-char *image_string(gdImagePtr ip, char *font, rgb_color color, double size, int position, int gap, char *text, int shadow, rgb_color shadow_color)
+char *image_string(MagickWand *ip, char *font, rgb_color color, double size, int position, int gap, char *text, int shadow, rgb_color shadow_color)
 {
-    int brect[8];
+  MagickBooleanType bRet;
+  DrawingWand * dw = NewDrawingWand();
+  bRet = DrawSetFont(dw, font);
+  DrawSetFontSize(dw, size);
+  char col[10];
+  wsprintfA(col, "#%02X%02X%02X", color.r, color.g, color.b);
+  PixelWand *pwt = NewPixelWand();
+  PixelSetColor(pwt, col);
 
-    int gd_color = gdImageColorResolve(ip, color.r, color.g, color.b);
-    char *err = gdImageStringFT(NULL, &brect[0], gd_color, font, size, 0, 0, 0, text);
-    if (NULL != err) {
-        return err;
-    }
     /*
     int width = brect[2] - brect[6];
     int height = brect[3] - brect[7];
     */
+  double *params = image_string_params(text, font, size);
 
-    int x, y;
+    int x = 0, y = 0;
     switch (position)
     {
     case 1: // lower left
-        x = -brect[0] + gap;
-        y = gdImageSY(ip) - brect[1] - gap;
+        x = gap;
+        y = MagickGetImageHeight(ip) - params[5] - gap;
         break;
     case 2: // lower right
-        x = gdImageSX(ip) - brect[2] - gap;
-        y = gdImageSY(ip) - brect[3] - gap;
+        x = MagickGetImageWidth(ip) - params[4] - gap;
+        y = MagickGetImageHeight(ip) - params[5] - gap;
         break;
     case 3: // upper right
-        x = gdImageSX(ip) - brect[4] - gap;
-        y = -brect[5] + gap;
+        MagickSetGravity(ip, NorthEastGravity);
+        x = MagickGetImageWidth(ip) - params[4] - gap;
+        y = gap;
         break;
     case 4: // upper left
-        x = -brect[6] + gap;
-        y = -brect[7] + gap;
+        x = gap;
+        y = gap;
         break;
     default:
         return "image_string's position can only be 1, 2, 3, or 4";
@@ -484,42 +520,48 @@ char *image_string(gdImagePtr ip, char *font, rgb_color color, double size, int 
         switch (position)
         {
         case 1: // lower left
-            shadowx = x+1;
-            shadowy = y;
-            y = y-1;
-            break;
+          shadowx = x + 1;
+          shadowy = y;
+          y = y - 1;
+          break;
         case 2: // lower right
-            shadowx = x;
-            shadowy = y;
-            x = x-1;
-            y = y-1;
-            break;
+          shadowx = x;
+          shadowy = y;
+          x = x - 1;
+          y = y - 1;
+          break;
         case 3: // upper right
-            shadowx = x;
-            shadowy = y+1;
-            x = x-1;
-            break;
+          shadowx = x;
+          shadowy = y + 1;
+          x = x - 1;
+          break;
         case 4: // upper left
-            shadowx = x+1;
-            shadowy = y+1;
-            break;
+          shadowx = x + 1;
+          shadowy = y + 1;
+          break;
         default:
             return "image_string's position can only be 1, 2, 3, or 4";
         }
-        int gd_shadow = gdImageColorResolve(ip, shadow_color.r, shadow_color.g, shadow_color.b);
-        err = gdImageStringFT(ip, &brect[0], gd_shadow, font, size, 0, shadowx, shadowy, text);
-        if (NULL != err) {
-            return err;
-        }
+        char scol[10];
+        wsprintfA(scol, "#%02X%02X%02X", shadow_color.r, shadow_color.g, shadow_color.b);
+        PixelWand *pws = NewPixelWand();
+        PixelSetColor(pws, scol);
+        DrawSetFillColor(dw, pws);
+        MagickAnnotateImage(ip, dw, shadowx, shadowy, 0, text);
+        DestroyPixelWand(pws);
     }
-
-    return gdImageStringFT(ip, &brect[0], gd_color, font, size, 0, x, y, text);
+    DrawSetFillColor(dw, pwt);
+    bRet = MagickAnnotateImage(ip, dw, x, y, 0, text);
+    DestroyPixelWand(pwt);
+    DestroyDrawingWand(dw);
+    MagickSetGravity(ip, ForgetGravity);
+    return NULL;
 }
 
 /*
 return 0 if can save jpg
 */
-int save_jpg(gdImagePtr ip, char *outname)
+int save_jpg(MagickWand *ip, char *outname)
 {
 #if defined(WIN32) && defined(_UNICODE)
     wchar_t outname_w[FILENAME_MAX];
@@ -527,48 +569,54 @@ int save_jpg(gdImagePtr ip, char *outname)
 #else
     char *outname_w = outname;
 #endif
-
-    int done = -1;
-    FILE *fp = _tfopen(outname_w, _TEXT("wb"));
-    if (NULL == fp) {
-        goto cleanup;
+    {
+      FILE *out_fp = NULL;
+      out_fp = _tfopen(outname_w, _TEXT("wb"));
+      if (NULL == out_fp) {
+        av_log(NULL, AV_LOG_ERROR, "  saving output image failed: %s\n", strerror(errno));
+        return -1;
+      }
+      fclose(out_fp);
+      if (MagickWriteImages(ip, CW2A(outname_w), MagickFalse) == MagickFalse) { // FIXME: this should work?
+        av_log(NULL, AV_LOG_ERROR, "  saving output image failed: %s\n", strerror(errno));
+        return 0;
+      }
     }
-
-    errno = 0;
-    gdImageJpeg(ip, fp, gb_j_quality);  /* how to check if write was successful? */
-    if (0 != errno) { // FIXME: valid check?
-        goto cleanup;
-    }
-    done = 0; // 0 = ok
-
-  cleanup:
-    if (NULL != fp && 0 != fclose(fp)) {
-      done = -1;
-    }
-    return done;
 }
 
 /*
 pFrame must be a PIX_FMT_RGB24 frame
 */
-void FrameRGB_2_gdImage(AVFrame *pFrame, gdImagePtr ip, int width, int height)
+void FrameRGB_2_gdImage(AVFrame *pFrame, MagickWand *ip)
 {
-    uint8_t *src = pFrame->data[0];
-    int x, y;
-    for (y = 0; y < height; y++) {
-        for (x = 0; x < width * 3; x += 3) {
-            gdImageSetPixel(ip, x / 3, y, gdImageColorResolve(ip, src[x], src[x + 1], src[x + 2]));
-            //gdImageSetPixel(ip, x/3, y, gdTrueColor(src[x], src[x+1], src[x+2]));
-        }
-        src += width * 3;
-    }
+  PixelIterator *it = NewPixelIterator(ip);
+  uint8_t *src = pFrame->data[0];
+  int x, y;
+  size_t imgw = 0;
+  PixelWand **pixels;
+  MagickPixelPacket pi;
+  for (y = 0; y < MagickGetImageHeight(ip); y++) {
+      pixels = PixelGetNextIteratorRow(it, &imgw);
+      for (x = 0; x < imgw; x++) {
+        PixelGetMagickColor(pixels[x], &pi);
+        int idx = x * 3;
+        //pi.colorspace = RGBColorspace;
+        pi.red = (((MagickRealType)(src[idx]) / (MagickRealType)0xFF))*QuantumRange;
+        pi.green = (((MagickRealType)(src[idx + 1]) / (MagickRealType)0xFF))*QuantumRange;
+        pi.blue = (((MagickRealType)(src[idx + 2]) / (MagickRealType)0xFF))*QuantumRange;
+        PixelSetMagickColor(pixels[x], &pi);
+      }
+      MagickBooleanType bRet = PixelSyncIterator(it);
+      src += imgw * 3;
+  }
+  DestroyPixelIterator(it);
 }
 
 /*
 */
 void shot_new(shot *psh)
 {
-    psh->ip = NULL;
+    psh->ip = NewMagickWand();
     psh->eff_target = AV_NOPTS_VALUE;
     psh->found_pts = AV_NOPTS_VALUE;
     psh->blank = 0;
@@ -582,7 +630,7 @@ void shot_new(shot *psh)
 */
 void thumb_new(thumbnail *ptn)
 {
-    ptn->out_ip = NULL;
+    ptn->out_ip = NewMagickWand();
     ptn->out_filename[0] = '\0';
     ptn->info_filename[0] = '\0';
     ptn->out_saved = 0;
@@ -604,7 +652,7 @@ return -1 if failed
 */
 int thumb_alloc_dynamic(thumbnail *ptn)
 {
-    ptn->ppts = malloc(ptn->column * ptn->row * sizeof(*(ptn->ppts)));
+    ptn->ppts = (int64_t *)malloc(ptn->column * ptn->row * sizeof(*(ptn->ppts)));
     if (NULL == ptn->ppts) {
         return -1;
     }
@@ -624,12 +672,13 @@ add shot
 because ptn->idx is the last index, this function assumes that shots will be added 
 in increasing order.
 */
-void thumb_add_shot(thumbnail *ptn, gdImagePtr ip, int idx, int64_t pts)
+void thumb_add_shot(thumbnail *ptn, MagickWand *ip, int idx, int64_t pts)
 {
     int dstX = idx%ptn->column * (ptn->shot_width+gb_g_gap) + gb_g_gap + ptn->center_gap;
     int dstY = idx/ptn->column * (ptn->shot_height+gb_g_gap) + gb_g_gap
         + ((3 == gb_L_info_location || 4 == gb_L_info_location) ? ptn->txt_height : 0);
-    gdImageCopy(ptn->out_ip, ip, dstX, dstY, 0, 0, ptn->shot_width, ptn->shot_height);
+    MagickCompositeImage(ptn->out_ip, ip, SrcOverCompositeOp, dstX, dstY);
+    //gdImageCopy(ptn->out_ip, ip, dstX, dstY, 0, 0, ptn->shot_width, ptn->shot_height);
     ptn->idx = idx;
     ptn->ppts[idx] = pts;
 }
@@ -651,14 +700,21 @@ http://cvs.php.net/viewvc.cgi/php-src/ext/gd/libgd/gd.c?revision=1.111&view=mark
 */
 void FrameRGB_convolution(AVFrame *pFrame, int width, int height, 
     float *filter, int filter_size, float filter_div, float offset,
-    gdImagePtr ip, int xbegin, int ybegin, int xend, int yend)
+    MagickWand *ip, int xbegin, int ybegin, int xend, int yend)
 {
 
     int x, y, i, j;
     float new_r, new_g, new_b;
     uint8_t *src = pFrame->data[0];
 
-    for (y=ybegin; y<=yend; y++) {
+    size_t imgw = 0;
+    PixelWand **pixels;
+    MagickPixelPacket pi;
+    PixelIterator *it = NewPixelIterator(ip);
+
+    for (y = ybegin; y <= yend; y++) {
+      PixelSetIteratorRow(it, y);
+      pixels = PixelGetCurrentIteratorRow(it, &imgw);
         for(x=xbegin; x<=xend; x++) {
             new_r = new_g = new_b = 0;
             //float grey = 0;
@@ -685,30 +741,51 @@ void FrameRGB_convolution(AVFrame *pFrame, int width, int height,
             new_b = (new_b > 255.0f)? 255.0f : ((new_b < 0.0f)? 0.0f:new_b);
             //grey = (grey > 255.0f)? 255.0f : ((grey < 0.0f)? 0.0f:grey);
 
-            gdImageSetPixel(ip, x, y, gdImageColorResolve(ip, (int)new_r, (int)new_g, (int)new_b));
-            //gdImageSetPixel(ip, x, y, gdTrueColor((int)new_r, (int)new_g, (int)new_b));
-            //gdImageSetPixel(ip, x, y, gdTrueColor((int)grey, (int)grey, (int)grey));
+            PixelGetMagickColor(pixels[x], &pi);
+            pi.red = ((MagickRealType)new_r) / ((MagickRealType)0xFF) *QuantumRange;
+            pi.green = ((MagickRealType)new_g) / ((MagickRealType)0xFF) *QuantumRange;
+            pi.blue = ((MagickRealType)new_b) / ((MagickRealType)0xFF) *QuantumRange;
+            PixelSetMagickColor(pixels[x], &pi);
+            //gdImageSetPixel(ip, x, y, gdImageColorResolve(ip, (int)new_r, (int)new_g, (int)new_b));
         }
+        PixelSyncIterator(it);
     }
+    it = DestroyPixelIterator(it);
 }
 
 /* begin = upper left, end = lower right
 */
-float cmp_edge(gdImagePtr ip, int xbegin, int ybegin, int xend, int yend)
+float cmp_edge(MagickWand *ip, int xbegin, int ybegin, int xend, int yend)
 {
 #define CMP_EDGE 208
     int count = 0;
     int i, j;
+    size_t imgw = 0;
+    PixelWand **pixels;
+    MagickPixelPacket pi;
+    PixelIterator *it = NewPixelIterator(ip);
     for (j = ybegin; j <= yend; j++) {
-        for (i = xbegin; i <= xend; i++) {
-            int pixel = gdImageGetPixel(ip, i, j);
-            if (gdImageRed(ip, pixel) >= CMP_EDGE 
-                && gdImageGreen(ip, pixel) >= CMP_EDGE
-                && gdImageBlue(ip, pixel) >= CMP_EDGE) {
-                count++;
-            }
+      PixelSetIteratorRow(it, j);
+      pixels = PixelGetCurrentIteratorRow(it, &imgw);
+      for (i = xbegin; i <= xend; i++) {
+        PixelGetMagickColor(pixels[i], &pi);
+        MagickRealType fCmpEdge = (((MagickRealType)CMP_EDGE / (MagickRealType)0xFF)) *QuantumRange;
+        if (pi.red >= fCmpEdge
+          && pi.green >= fCmpEdge
+          && pi.blue >= fCmpEdge) {
+          count++;
         }
+        /*
+        int pixel = gdImageGetPixel(ip, i, j);
+        if (gdImageRed(ip, pixel) >= CMP_EDGE 
+            && gdImageGreen(ip, pixel) >= CMP_EDGE
+            && gdImageBlue(ip, pixel) >= CMP_EDGE) {
+            count++;
+        }
+        */
+      }
     }
+    it = DestroyPixelIterator(it);
     return (float)count / (yend - ybegin + 1) / (xend - xbegin + 1);
 }
 
@@ -737,7 +814,7 @@ http://www.pages.drexel.edu/~weg22/edge.html
 http://student.kuleuven.be/~m0216922/CG/filtering.html
 http://cvs.php.net/viewvc.cgi/php-src/ext/gd/libgd/gd.c?revision=1.111&view=markup
 */
-gdImagePtr detect_edge(AVFrame *pFrame, int width, int height, float *edge, float edge_found)
+MagickWand* detect_edge(AVFrame *pFrame, int width, int height, float *edge, float edge_found)
 {
     static float filter[] = {
          0,-1, 0,
@@ -757,13 +834,24 @@ gdImagePtr detect_edge(AVFrame *pFrame, int width, int height, float *edge, floa
         filter[7] = -gb_D_edge/4.0f;
     }
 
+    MagickWand *ip = NewMagickWand();
+    {
+      PixelWand *bg1 = NewPixelWand();
+      PixelSetColor(bg1, "#000000");
+      if (MagickNewImage(ip, width, height, bg1) == MagickFalse) {
+        av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed\n");
+        return NULL;
+      }
+      bg1 = DestroyPixelWand(bg1);
+    }
+    /*
     gdImagePtr ip = gdImageCreateTrueColor(width, height);
     if (NULL == ip) {
         av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed\n");
         return NULL;
-    }
+    }*/
     if (gb_v_verbose > 0) {
-        FrameRGB_2_gdImage(pFrame, ip, width, height);
+        FrameRGB_2_gdImage(pFrame, ip);
     }
 
     int i;
@@ -807,21 +895,21 @@ void save_AVFrame(AVFrame *pFrame, int src_width, int src_height, int pix_fmt,
     AVFrame *pFrameRGB = NULL;
     uint8_t *rgb_buffer = NULL;
     struct SwsContext *pSwsCtx = NULL;
-    gdImagePtr ip = NULL;
+    MagickWand *ip = NewMagickWand();
 
-    pFrameRGB = avcodec_alloc_frame();
+    pFrameRGB = av_frame_alloc();
     if (pFrameRGB == NULL) {
         av_log(NULL, AV_LOG_ERROR, "  couldn't allocate a video frame\n");
         goto cleanup;
     }
     int rgb_bufsize = avpicture_get_size(PIX_FMT_RGB24, dst_width, dst_height);
-    rgb_buffer = av_malloc(rgb_bufsize);
+    rgb_buffer = (uint8_t *)av_malloc(rgb_bufsize);
     if (NULL == rgb_buffer) {
         av_log(NULL, AV_LOG_ERROR, "  av_malloc %d bytes failed\n", rgb_bufsize);
         goto cleanup;
     }
     avpicture_fill((AVPicture *) pFrameRGB, rgb_buffer, PIX_FMT_RGB24, dst_width, dst_height);
-    pSwsCtx = sws_getContext(src_width, src_height, pix_fmt,
+    pSwsCtx = sws_getContext(src_width, src_height, (AVPixelFormat)pix_fmt,
         dst_width, dst_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
     if (NULL == pSwsCtx) { // sws_getContext is not documented
         av_log(NULL, AV_LOG_ERROR, "  sws_getContext failed\n");
@@ -830,12 +918,25 @@ void save_AVFrame(AVFrame *pFrame, int src_width, int src_height, int pix_fmt,
 
     sws_scale(pSwsCtx, pFrame->data, pFrame->linesize, 0, src_height, 
         pFrameRGB->data, pFrameRGB->linesize);
+
+
+    {
+      PixelWand *bg1 = NewPixelWand();
+      PixelSetColor(bg1, "#000000");
+      if (MagickNewImage(ip, dst_width, dst_height, bg1) == MagickFalse) {
+        av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", dst_width, dst_height);
+        goto cleanup;
+      }
+      bg1 = DestroyPixelWand(bg1);
+    }
+
+    /*
     ip = gdImageCreateTrueColor(dst_width, dst_height);
     if (NULL == ip) {
         av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", dst_width, dst_height);
         goto cleanup;
-    }
-    FrameRGB_2_gdImage(pFrameRGB, ip, dst_width, dst_height);
+    }*/
+    FrameRGB_2_gdImage(pFrameRGB, ip);
     int ret = save_jpg(ip, filename);
     if (0 != ret) {
         av_log(NULL, AV_LOG_ERROR, "  save_jpg failed: %s\n", filename);
@@ -844,7 +945,7 @@ void save_AVFrame(AVFrame *pFrame, int src_width, int src_height, int pix_fmt,
 
   cleanup:
     if (NULL != ip)
-        gdImageDestroy(ip);
+      ip = DestroyMagickWand(ip);;
     if (NULL != pSwsCtx)
         sws_freeContext(pSwsCtx); // do we need to do this?
     if (NULL != rgb_buffer)
@@ -931,7 +1032,7 @@ void calc_scale_src(int width, int height, AVRational ratio, int *scaled_w, int 
 /*
 modified from libavformat's dump_format
 */
-void get_stream_info_type(AVFormatContext *ic, enum CodecType type, char *buf, AVRational sample_aspect_ratio)
+void get_stream_info_type(AVFormatContext *ic, enum AVMediaType type, char *buf, AVRational sample_aspect_ratio)
 {
     char sub_buf[1024] = ""; // FIXME
     unsigned int i;
@@ -944,9 +1045,10 @@ void get_stream_info_type(AVFormatContext *ic, enum CodecType type, char *buf, A
             continue;
         }
 
-        if (CODEC_TYPE_SUBTITLE == st->codec->codec_type) {
-            if (strlen(st->language) > 0) {
-                sprintf(sub_buf + strlen(sub_buf), "%s ", st->language);
+        if (AVMEDIA_TYPE_SUBTITLE == st->codec->codec_type) {
+          AVDictionaryEntry *t = av_dict_get(st->metadata, "language", NULL, 0);
+          if (t && strlen(t->key) > 0) {
+            sprintf(sub_buf + strlen(sub_buf), "%s ", t->key);
             } else {
                 // FIXME: ignore for now; language seem to be missing in .vob files
                 //sprintf(sub_buf + strlen(sub_buf), "? ");
@@ -978,7 +1080,7 @@ void get_stream_info_type(AVFormatContext *ic, enum CodecType type, char *buf, A
         }
         sprintf(buf + strlen(buf), codec_buf);
 
-        if (st->codec->codec_type == CODEC_TYPE_VIDEO){
+        if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO){
             if (st->r_frame_rate.den && st->r_frame_rate.num)
                 sprintf(buf + strlen(buf), ", %5.2f fps(r)", av_q2d(st->r_frame_rate));
             //else if(st->time_base.den && st->time_base.num)
@@ -994,8 +1096,9 @@ void get_stream_info_type(AVFormatContext *ic, enum CodecType type, char *buf, A
                 sprintf(buf + strlen(buf), " => %dx%d", scaled_src_width, scaled_src_height);
             }
         }
-        if (strlen(st->language) > 0) {
-            sprintf(buf + strlen(buf), " (%s)", st->language);
+        AVDictionaryEntry *t = av_dict_get(st->metadata, "language", NULL, 0);
+        if (t && strlen(t->value) > 0) {
+          sprintf(buf + strlen(buf), " (%s)", t->value);
         }
         sprintf(buf + strlen(buf), NEWLINE);
     }
@@ -1020,7 +1123,7 @@ char *get_stream_info(AVFormatContext *ic, char *url, int strip_path, AVRational
 
     sprintf(buf, "File: %s", file_name);
     //sprintf(buf + strlen(buf), " (%s)", ic->iformat->name);
-    sprintf(buf + strlen(buf), "%sSize: %"PRId64" bytes (%s)", NEWLINE, ic->file_size, format_size(ic->file_size, "B"));
+    sprintf(buf + strlen(buf), "%sSize: %"PRId64" bytes (%s)", NEWLINE, (ic->pb ? avio_size(ic->pb) : 0), format_size((ic->pb ? avio_size(ic->pb) : 0), "B"));
     if (ic->duration != AV_NOPTS_VALUE) { // FIXME: gcc warning: comparison between signed and unsigned
         int hours, mins, secs;
         duration = secs = ic->duration / AV_TIME_BASE;
@@ -1045,16 +1148,16 @@ char *get_stream_info(AVFormatContext *ic, char *url, int strip_path, AVRational
     // calculate from duration.
     // is this ok? probably not ok with .vob files when duration is wrong. DEBUG
     if (duration > 0) {
-        sprintf(buf + strlen(buf), ", avg.bitrate: %.0f kb/s%s", (double) ic->file_size * 8 / duration / 1000, NEWLINE);
+      sprintf(buf + strlen(buf), ", avg.bitrate: %.0f kb/s%s", (double)(ic->pb ? avio_size(ic->pb) : 0) * 8 / duration / 1000, NEWLINE);
     } else if (ic->bit_rate) {
         sprintf(buf + strlen(buf), ", bitrate: %d kb/s%s", ic->bit_rate / 1000, NEWLINE);
     } else {
         sprintf(buf + strlen(buf), ", bitrate: N/A%s", NEWLINE);
     }
 
-    get_stream_info_type(ic, CODEC_TYPE_AUDIO, buf, sample_aspect_ratio);
-    get_stream_info_type(ic, CODEC_TYPE_VIDEO, buf, sample_aspect_ratio);
-    get_stream_info_type(ic, CODEC_TYPE_SUBTITLE, buf, sample_aspect_ratio);
+    get_stream_info_type(ic, AVMEDIA_TYPE_AUDIO, buf, sample_aspect_ratio);
+    get_stream_info_type(ic, AVMEDIA_TYPE_VIDEO, buf, sample_aspect_ratio);
+    get_stream_info_type(ic, AVMEDIA_TYPE_SUBTITLE, buf, sample_aspect_ratio);
     // CODEC_TYPE_DATA FIXME: what is this type?
     // CODEC_TYPE_NB FIXME: what is this type?
 
@@ -1062,7 +1165,7 @@ char *get_stream_info(AVFormatContext *ic, char *url, int strip_path, AVRational
     return buf;
 }
 
-void dump_format_context(AVFormatContext *p, int __attribute__((unused)) index, char *url, int __attribute__((unused)) is_output)
+void dump_format_context(AVFormatContext *p, int index, char *url, int  is_output)
 {
     //av_log(NULL, AV_LOG_ERROR, "\n");
     av_log(NULL, AV_LOG_VERBOSE, "***dump_format_context, name: %s, long_name: %s\n", 
@@ -1072,11 +1175,11 @@ void dump_format_context(AVFormatContext *p, int __attribute__((unused)) index, 
     // dont show scaling info at this time because we dont have the proper sample_aspect_ratio
     av_log(NULL, LOG_INFO, get_stream_info(p, url, 0, GB_A_RATIO)); 
 
-    av_log(NULL, AV_LOG_VERBOSE, "start_time av: %"PRId64", duration av: %"PRId64", file_size: %"PRId64"\n",
-        p->start_time, p->duration, p->file_size);
+    av_log(NULL, AV_LOG_VERBOSE, "start_time av: %"PRId64", duration av: %"PRId64"\n",
+        p->start_time, p->duration);
     av_log(NULL, AV_LOG_VERBOSE, "start_time s: %.2f, duration s: %.2f\n",
         (double) p->start_time / AV_TIME_BASE, (double) p->duration / AV_TIME_BASE);
-    if (p->track != 0)
+   /* if (p->track != 0)
         av_log(NULL, LOG_INFO, "  Track: %d\n", p->track);
     if (p->title[0] != '\0')
         av_log(NULL, LOG_INFO, "  Title: %s\n", p->title);
@@ -1091,7 +1194,7 @@ void dump_format_context(AVFormatContext *p, int __attribute__((unused)) index, 
     if (p->year != 0)
         av_log(NULL, LOG_INFO, "  Year: %d\n", p->year);
     if (p->genre[0] != '\0')
-        av_log(NULL, LOG_INFO, "  Genre: %s\n", p->genre);
+        av_log(NULL, LOG_INFO, "  Genre: %s\n", p->genre);*/
 }
 
 /*
@@ -1138,9 +1241,9 @@ uint64_t gb_video_pkt_pts = AV_NOPTS_VALUE;
  * buffer. We use this to store the global_pts in
  * a frame at the time it is allocated.
  */
-int our_get_buffer(struct AVCodecContext *c, AVFrame *pic) {
+int our_get_buffer2(struct AVCodecContext *c, AVFrame *pic, int) {
   int ret = avcodec_default_get_buffer(c, pic);
-  uint64_t *pts = av_malloc(sizeof(uint64_t));
+  uint64_t *pts = (uint64_t *)av_malloc(sizeof(uint64_t));
   *pts = gb_video_pkt_pts;
   pic->opaque = pts;
   av_log(NULL, AV_LOG_VERBOSE, "*coping gb_video_pkt_pts: %"PRId64" to opaque\n", gb_video_pkt_pts);
@@ -1182,12 +1285,12 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
     // keep decoding until we get a key frame
     for (got_picture = 0; 0 == got_picture 
         //|| (1 == key_only && !(1 == pFrame->key_frame && FF_I_TYPE == pFrame->pict_type)); // same as version 0.61
-        || (1 == key_only && !(1 == pFrame->key_frame || FF_I_TYPE == pFrame->pict_type)); // same as version 2.42
+        || (1 == key_only && !(1 == pFrame->key_frame || AV_PICTURE_TYPE_I == pFrame->pict_type)); // same as version 2.42
         //|| (1 == key_only && 1 != pFrame->key_frame); // is there a reason why not use this? t_warhawk_review_gt_h264.mov (svq3) seems to set only pict_type
         av_free_packet(&packet)) {
 
-        if (0 != av_read_frame(pFormatCtx, &packet)) {
-            if (url_ferror(pFormatCtx->pb) != 0) { // from ffplay - not documented
+        if (0 < av_read_frame(pFormatCtx, &packet)) {
+          if ((pFormatCtx->pb->error) != 0) { // from ffplay - not documented
                 return -1;
             }
             return 0;
@@ -1203,7 +1306,7 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
         // so we'll use it only when a key frame is difficult to find.
         // hope this wont break anything. :)
         // this seems to help a lot for files with vorbis audio
-        if (1 == skip_non_key && 1 == key_only && !(packet.flags & PKT_FLAG_KEY)) {
+        if (1 == skip_non_key && 1 == key_only && !(packet.flags & AV_PKT_FLAG_KEY)) {
             continue;
         }
         
@@ -1215,7 +1318,7 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
         gb_video_pkt_pts = packet.pts;
 
         // Decode video frame
-        avcodec_decode_video(pCodecCtx, pFrame, &got_picture, packet.data, packet.size);
+        avcodec_decode_video2(pCodecCtx, pFrame, &got_picture, &packet);
         // error is ignored. perhaps packets read are not enough.
         av_log(NULL, AV_LOG_VERBOSE, "*avcodec_decode_video: got_picture: %d, key_frame: %d, pict_type: %d\n", got_picture, pFrame->key_frame, pFrame->pict_type);
 
@@ -1307,7 +1410,7 @@ return the duration. guess when unknown.
 must be called after codec has been opened
 */
 double guess_duration(AVFormatContext *pFormatCtx, int index, 
-    AVCodecContext __attribute__((unused)) *pCodecCtx, AVFrame __attribute__((unused)) *pFrame)
+    AVCodecContext  *pCodecCtx, AVFrame  *pFrame)
 {
     double duration = (double) pFormatCtx->duration / AV_TIME_BASE; // can be incorrect for .vob files
     if (duration > 0) {
@@ -1321,8 +1424,8 @@ double guess_duration(AVFormatContext *pFormatCtx, int index,
     // pFormatCtx->start_time would be incorrect for .vob file with multiple titles.
     // pStream->start_time doesn't work either. so we'll need to disable timestamping.
     assert(NULL != pStream && NULL != pStream->codec);
-    if (pStream->codec->bit_rate > 0 && pFormatCtx->file_size > 0) {
-        guess = 0.9 * pFormatCtx->file_size / (pStream->codec->bit_rate / 8);
+    if (pStream->codec->bit_rate > 0 && (pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0) > 0) {
+      guess = 0.9 * (pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0) / (pStream->codec->bit_rate / 8);
         if (guess > 0) {
             av_log(NULL, AV_LOG_ERROR, "  ** duration is unknown: %.2f; guessing: %.2f s from bit_rate\n", duration, guess);
             return guess;
@@ -1409,12 +1512,12 @@ int really_seek(AVFormatContext *pFormatCtx, int index, int64_t timestamp, int f
     // normally when seeking by timestamp we add start_time to timestamp 
     // before seeking, but seeking by byte we need to subtract the added start_time
     timestamp -= start_time / av_q2d(pStream->time_base);
-    if (pFormatCtx->file_size <= 0) {
+    if ((pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0) <= 0) {
         return -1;
     }
     if (duration > 0) {
-        int64_t byte_pos = av_rescale(timestamp, pFormatCtx->file_size, duration_tb);
-        av_log(NULL, LOG_INFO, "AVSEEK_FLAG_BYTE: byte_pos: %"PRId64", timestamp: %"PRId64", file_size: %"PRId64", duration_tb: %"PRId64"\n", byte_pos, timestamp, pFormatCtx->file_size, duration_tb);
+      int64_t byte_pos = av_rescale(timestamp, (pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0), duration_tb);
+      av_log(NULL, LOG_INFO, "AVSEEK_FLAG_BYTE: byte_pos: %"PRId64", timestamp: %"PRId64", file_size: %"PRId64", duration_tb: %"PRId64"\n", byte_pos, timestamp, (pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0), duration_tb);
         return av_seek_frame(pFormatCtx, index, byte_pos, AVSEEK_FLAG_BYTE);
     }
 
@@ -1456,16 +1559,17 @@ void make_thumbnail(char *file)
     static int nb_file = 0; // FIXME: static
     nb_file++;
 
-    struct timeval tstart;
-    gettimeofday(&tstart, NULL);
+  //  struct timeval tstart;
+    //gettimeofday(&tstart, NULL);
 
     int i;
     thumbnail tn; // thumbnail data & info
     thumb_new(&tn);
     // shot sh; // shot info
-    shot fill_buffer[gb_c_column-1]; // skipped shots to fill the last row
+    //shot fill_buffer[gb_c_column-1]; // skipped shots to fill the last row
+    shot *fill_buffer = (shot *)calloc(1, sizeof(shot) * (gb_c_column - 1)); // skipped shots to fill the last row
     for (i=0; i<gb_c_column-1; i++) {
-        fill_buffer[i].ip = NULL;
+      fill_buffer[i].ip = NewMagickWand();
     }
     int nb_shots = 0; // # of decoded shots (stat purposes)
 
@@ -1476,10 +1580,10 @@ void make_thumbnail(char *file)
     AVFrame *pFrameRGB = NULL;
     uint8_t *rgb_buffer = NULL;
     struct SwsContext *pSwsCtx = NULL;
-    tn.out_ip = NULL;
-    FILE *out_fp = NULL;
+    tn.out_ip = NewMagickWand();
+    //FILE *out_fp = NULL;
     FILE *info_fp = NULL;
-    gdImagePtr ip = NULL;
+    MagickWand *ip = NewMagickWand();
 
     int t_timestamp = gb_t_timestamp; // local timestamp; can be turned off; 0 = off
     int ret;
@@ -1540,11 +1644,13 @@ void make_thumbnail(char *file)
     char *out_filename_w = tn.out_filename;
     char *info_filename_w = tn.info_filename;
 #endif
+    /*
     out_fp = _tfopen(out_filename_w, _TEXT("wb"));
     if (NULL == out_fp) {
         av_log(NULL, AV_LOG_ERROR, "\n%s: creating output image '%s' failed: %s\n", gb_argv0, tn.out_filename, strerror(errno));
         goto cleanup;
     }
+    */
     if (NULL != gb_N_suffix) {
         info_fp = _tfopen(info_filename_w, _TEXT("wb"));
         if (NULL == info_fp) {
@@ -1554,7 +1660,7 @@ void make_thumbnail(char *file)
     }
 
     // Open video file
-    ret = av_open_input_file(&pFormatCtx, file, NULL, 0, NULL);
+    ret = avformat_open_input(&pFormatCtx, file, NULL, NULL);
     if (0 != ret) {
         av_log(NULL, AV_LOG_ERROR, "\n%s: av_open_input_file %s failed: %d\n", gb_argv0, file, ret);
         goto cleanup;
@@ -1566,7 +1672,7 @@ void make_thumbnail(char *file)
     pFormatCtx->flags |= AVFMT_FLAG_GENPTS;
 
     // Retrieve stream information
-    ret = av_find_stream_info(pFormatCtx);
+    ret = avformat_find_stream_info(pFormatCtx, NULL);
     if (ret < 0) {
         av_log(NULL, AV_LOG_ERROR, "\n%s: av_find_stream_info %s failed: %d\n", gb_argv0, file, ret);
         goto cleanup;
@@ -1577,7 +1683,7 @@ void make_thumbnail(char *file)
     // int av_find_default_stream_index(AVFormatContext *s)
     int video_index = -1;
     for (i = 0; i < pFormatCtx->nb_streams; i++) {
-        if (CODEC_TYPE_VIDEO == pFormatCtx->streams[i]->codec->codec_type) {
+        if (AVMEDIA_TYPE_VIDEO == pFormatCtx->streams[i]->codec->codec_type) {
             video_index = i;
             break;
         }
@@ -1611,16 +1717,16 @@ void make_thumbnail(char *file)
     }
 
     // Open codec
-    ret = avcodec_open(pCodecCtx, pCodec);
+    ret = avcodec_open2(pCodecCtx, pCodec, NULL);
     if (ret < 0) {
         av_log(NULL, AV_LOG_ERROR, "  couldn't open codec %s id %d: %d\n", pCodec->name, pCodec->id, ret);
         goto cleanup;
     }
-    pCodecCtx->get_buffer = our_get_buffer;
-    pCodecCtx->release_buffer = our_release_buffer;
+    pCodecCtx->get_buffer2 = our_get_buffer2;
+   // pCodecCtx->release_buffer = our_release_buffer;
 
     // Allocate video frame
-    pFrame = avcodec_alloc_frame();
+    pFrame = av_frame_alloc();
     if (pFrame == NULL) {
         av_log(NULL, AV_LOG_ERROR, "  couldn't allocate a video frame\n");
         goto cleanup;
@@ -1813,7 +1919,7 @@ void make_thumbnail(char *file)
         goto cleanup;
     }
     int rgb_bufsize = avpicture_get_size(PIX_FMT_RGB24, tn.shot_width, tn.shot_height);
-    rgb_buffer = av_malloc(rgb_bufsize);
+    rgb_buffer = (uint8_t *)av_malloc(rgb_bufsize);
     if (NULL == rgb_buffer) {
         av_log(NULL, AV_LOG_ERROR, "  av_malloc %d bytes failed\n", rgb_bufsize);
         goto cleanup;
@@ -1828,13 +1934,20 @@ void make_thumbnail(char *file)
     }
 
     /* create the output image */
-    tn.out_ip = gdImageCreateTrueColor(tn.width, tn.height);
-    if (NULL == tn.out_ip) {
+    {
+      PixelWand *bgw1 = NewPixelWand();
+      char colstr1[12];
+      wsprintfA(colstr1, "#%02X%02X%02X", gb_k_bcolor.r, gb_k_bcolor.g, gb_k_bcolor.b);
+      PixelSetColor(bgw1, colstr1);
+      if (MagickNewImage(tn.out_ip, tn.width, tn.height, bgw1) == MagickFalse) {
         av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", tn.width, tn.height);
         goto cleanup;
+      }
+      //int background = gdImageColorResolve(tn.out_ip, gb_k_bcolor.r, gb_k_bcolor.g, gb_k_bcolor.b); // set backgroud
+      //gdImageFilledRectangle(tn.out_ip, 0, 0, tn.width, tn.height, background);
+
+      bgw1 = DestroyPixelWand(bgw1);
     }
-    int background = gdImageColorResolve(tn.out_ip, gb_k_bcolor.r, gb_k_bcolor.g, gb_k_bcolor.b); // set backgroud
-    gdImageFilledRectangle(tn.out_ip, 0, 0, tn.width, tn.height, background);
 
     /* add info & text */ // do this early so when font is not found we'll quit early
     if (NULL != all_text && strlen(all_text) > 0) {
@@ -1877,7 +1990,7 @@ void make_thumbnail(char *file)
     int thumb_nb = tn.row * tn.column; // thumb_nb = # of shots we need
     int64_t prevshot_pts = -1; // pts of previous good shot
     int64_t prevfound_pts = -1; // pts of previous decoding
-    gdImagePtr edge_ip = NULL; // edge image
+    MagickWand *edge_ip = NewMagickWand(); // edge image
 
     for (idx = 0; idx < thumb_nb; idx++) {
 
@@ -2054,20 +2167,29 @@ void make_thumbnail(char *file)
         }
 
         //
-        avg_evade_try = (avg_evade_try * idx + evade_try ) / (idx+1); // DEBUG
+        avg_evade_try = (avg_evade_try * idx + evade_try) / (idx + 1); // DEBUG
         //av_log(NULL, AV_LOG_VERBOSE, "  *** avg_evade_try: %.2f\n", avg_evade_try); // DEBUG
 
         /* convert to GD image */
-        ip = gdImageCreateTrueColor(tn.shot_width, tn.shot_height);
-        if (NULL == ip) {
+        {
+          PixelWand *bgb = NewPixelWand();
+          PixelSetColor(bgb, "#ffffff");
+          if (MagickNewImage(ip, tn.shot_width, tn.shot_height, bgb) == MagickFalse) {
             av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", tn.shot_width, tn.shot_height);
             goto cleanup;
+          }
+          FrameRGB_2_gdImage(pFrameRGB, ip);
+
+          bgb = DestroyPixelWand(bgb);
         }
-        FrameRGB_2_gdImage(pFrameRGB, ip, tn.shot_width, tn.shot_height);
+#ifdef _DEBUG
+        FrameRGB_2_gdImage(pFrameRGB, ip);
+        MagickWriteImages(ip, "C:\\tmp\\dbg.jpg", MagickFalse);
+#endif
 
         /* if debugging, save the edge instead */
         if (gb_v_verbose > 0 && NULL != edge_ip) {
-            gdImageDestroy(ip);
+            DestroyMagickWand(ip);
             ip = edge_ip;
             edge_ip = NULL;
         }
@@ -2084,6 +2206,9 @@ void make_thumbnail(char *file)
                 av_log(NULL, AV_LOG_ERROR, "  %s; font problem? see -f option or -F option\n", str_ret);
                 goto cleanup; // LEAK: ip, edge_ip
             }
+#ifdef _DEBUG
+            MagickWriteImages(ip, "C:\\tmp\\dbg3.jpg", MagickFalse);
+#endif
             /* stamp idx & blank & edge for debugging */
             if (gb_v_verbose > 0) {
                 char idx_str[10]; // FIXME
@@ -2111,8 +2236,8 @@ void make_thumbnail(char *file)
 
         /* add picture to output image */
         thumb_add_shot(&tn, ip, idx, found_pts);
-        gdImageDestroy(ip);
-        ip = NULL;
+        ip = DestroyMagickWand(ip);
+        ip = NewMagickWand();
 
       skip_shot:
         /* step */
@@ -2127,8 +2252,7 @@ void make_thumbnail(char *file)
       continue_cleanup: // cleaning up before continuing the loop
         prevfound_pts = found_pts;
         if (NULL != edge_ip) {
-            gdImageDestroy(edge_ip);
-            edge_ip = NULL;
+            edge_ip = DestroyMagickWand(edge_ip);
         }
     }
     av_log(NULL, AV_LOG_VERBOSE, "  *** avg_evade_try: %.2f\n", avg_evade_try); // DEBUG
@@ -2144,9 +2268,7 @@ void make_thumbnail(char *file)
     }
     if (0 != skipped_rows) {
         int cropped_height = tn.height - skipped_rows*tn.shot_height;
-        gdImagePtr new_out_ip = crop_image(tn.out_ip, tn.width, cropped_height);
-        if (new_out_ip != tn.out_ip) {
-            tn.out_ip = new_out_ip;
+        if (MagickSetImageExtent(tn.out_ip, tn.width, cropped_height) == MagickFalse) {
             av_log(NULL, LOG_INFO, "  changing # of tiles to %dx%d because of skipped shots; total size: %dx%d\n", tn.column, tn.row - skipped_rows, tn.width, cropped_height);
         }
     }
@@ -2154,34 +2276,41 @@ void make_thumbnail(char *file)
     /* fill in the last row if some shots were skipped */
 
     /* save output image */
-    errno = 0;
-    gdImageJpeg(tn.out_ip, out_fp, gb_j_quality);  /* FIXME: how to check if write was successful? */
-    if (0 != errno) { // FIXME: this should work?
+    {
+      FILE *out_fp = NULL;
+      out_fp = _tfopen(out_filename_w, _TEXT("wb"));
+      if (NULL == out_fp) {
         av_log(NULL, AV_LOG_ERROR, "  saving output image failed: %s\n", strerror(errno));
         goto cleanup;
+      }
+      fclose(out_fp);
+      if (MagickWriteImages(tn.out_ip, CW2A(out_filename_w), MagickFalse) == MagickFalse) { // FIXME: this should work?
+        av_log(NULL, AV_LOG_ERROR, "  saving output image failed: %s\n", strerror(errno));
+        goto cleanup;
+      }
     }
     tn.out_saved = 1;
 
-    struct timeval tfinish;
+ /*   struct timeval tfinish;
     gettimeofday(&tfinish, NULL); // calendar time; effected by load & io & etc.
     double diff_time = (tfinish.tv_sec + tfinish.tv_usec/1000000.0) - (tstart.tv_sec + tstart.tv_usec/1000000.0);
     // previous version reported # of decoded shots/s; now we report the # of final shots/s
     //av_log(NULL, LOG_INFO, "  avg. %.2f shots/s; output file: %s\n", nb_shots / diff_time, tn.out_filename);
     av_log(NULL, LOG_INFO, "  %.2f s, %.2f shots/s; output: %s\n", 
         diff_time, (tn.idx + 1) / diff_time, tn.out_filename);
-
+*/
   cleanup:
     if (NULL != ip)
-        gdImageDestroy(ip);
+      ip = DestroyMagickWand(ip);
     if (NULL != tn.out_ip)
-        gdImageDestroy(tn.out_ip);
+      tn.out_ip = DestroyMagickWand(tn.out_ip);
 
-    if (NULL != out_fp) {
+    /*if (NULL != out_fp) {
         fclose(out_fp);
         if (1 != tn.out_saved) {
             _tunlink(out_filename_w);
         }
-    }
+    }*/
     if (NULL != info_fp) {
         fclose(info_fp);
         if (1 != tn.out_saved) {
@@ -2207,16 +2336,18 @@ void make_thumbnail(char *file)
 
     // Close the video file
     if (NULL != pFormatCtx)
-        av_close_input_file(pFormatCtx);
+      avformat_close_input(&pFormatCtx);
 
     thumb_cleanup_dynamic(&tn);
+
+    free(fill_buffer);
     
     av_log(NULL, AV_LOG_VERBOSE, "make_thumbnail: done\n");
 }
 
 /* modified from glibc
 */
-int alphasort(const void *a, const void *b)
+int __cdecl alphasort(const void *a, const void *b)
 {
     return strcoll(*(const char **) a, *(const char **) b);
     //return strcasecmp(*(const char **) a, *(const char **) b);
@@ -2224,10 +2355,10 @@ int alphasort(const void *a, const void *b)
 
 /* modified from glibc
 */
-int alphacasesort(const void *a, const void *b)
+int _cdecl alphacasesort(const void *a, const void *b)
 {
     //return strcoll(*(const char **) a, *(const char **) b);
-    return strcasecmp(*(const char **) a, *(const char **) b);
+    return stricmp(*(const char **) a, *(const char **) b);
 }
 
 /*
@@ -2276,19 +2407,19 @@ void process_dir(char *dir)
     char *dir_w = dir;
 #endif
 
-    _TDIR *dp = _topendir(dir_w);
+    _WDIR *dp = _wopendir(dir_w);
     if (NULL == dp) {
         av_log(NULL, AV_LOG_ERROR, "\n%s: opendir failed: %s\n", dir, strerror(errno));
         return;
     }
 
     /* read directory & sort */
-    struct _tdirent *d;
+    struct _wdirent *d;
     char **v = NULL;
     size_t cnt = 0, vsize = 0;
     while (1) {
         errno = 0;
-        d = _treaddir(dp);
+        d = _wreaddir(dp);
         if (NULL == d) {
             if (0 != errno) { // is this check good?
                 av_log(NULL, AV_LOG_ERROR, "\n%s: readdir failed: %s\n", dir, strerror(errno));
@@ -2316,21 +2447,21 @@ void process_dir(char *dir)
         }
 
         if (cnt == vsize) {
-            char **new;
+            char **nm;
             if (vsize == 0)
                 vsize = 50;
             else
                 vsize *= 2;
-            new = realloc(v, vsize * sizeof(*v));
-            if (new == NULL) {
+            nm = (char **)realloc(v, vsize * sizeof(*v));
+            if (nm == NULL) {
                 // mingw doesn't seem to set errno for memory functions
                 av_log(NULL, AV_LOG_ERROR, "\n%s: realloc failed: %s\n", dir, strerror(errno));
                 goto cleanup;
             }
-            v = new;
+            v = nm;
         }
 
-        char *vnew = malloc(strlen(child_utf8) + 1); // for '\0'
+        char *vnew = (char *)malloc(strlen(child_utf8) + 1); // for '\0'
         if (vnew == NULL) {
             av_log(NULL, AV_LOG_ERROR, "\n%s: malloc failed: %s\n", dir, strerror(errno));
             goto cleanup;
@@ -2348,7 +2479,7 @@ void process_dir(char *dir)
     while (cnt > 0)
         free(v[--cnt]);
     free(v);
-    _tclosedir(dp);
+    _wclosedir(dp);
 }
 
 /*
@@ -2374,7 +2505,8 @@ void process_loop(int n, char **files)
 typedef struct {
   int newmode;
 } _startupinfo;
-extern void __wgetmainargs (int *, wchar_t ***, wchar_t ***, int, _startupinfo *);
+//extern void __wgetmainargs (int *, wchar_t ***, wchar_t ***, int, _startupinfo *);
+
 
 char *gb_argv[10240]; // FIXME: global & hopefully noone will use more than this
 /*
@@ -2386,19 +2518,20 @@ int get_windows_argv(int *pargc, char ***pargv)
 {
 #if defined(WIN32) && defined(_UNICODE)
     // copied & modified from mingw-runtime-3.13's init.c
-    int _argc = 0;
+    /*int _argc = 0;
     wchar_t **_argv = 0;
     wchar_t **dummy_environ = 0;
     _startupinfo start_info;
     start_info.newmode = 0;
     __wgetmainargs(&_argc, &_argv, &dummy_environ, -1, &start_info);
+    */
 
     //printf("\nafter __wgetmainargs; _argc: %d\n", _argc); // DEBUG
     int i;
-    for (i = 0; i < _argc; i++) {
+    for (i = 0; i < *pargc; i++) {
         //wprintf(L"_argv[%d] wc: %s\n", i, _argv[i]); // DEBUG
         char utf8_buf[UTF8_FILENAME_SIZE] = "";
-        WC_2_UTF8(utf8_buf, _argv[i], UTF8_FILENAME_SIZE);
+        WC_2_UTF8(utf8_buf, CA2W((*pargv)[i]), UTF8_FILENAME_SIZE);
         //printf("_argv[%d] utf8: %s\n", i, utf8_buf); // DEBUG
 
         char *dup = strdup(utf8_buf);
@@ -2407,13 +2540,13 @@ int get_windows_argv(int *pargc, char ***pargv)
         }
         gb_argv[i] = dup;
     }
-    *pargc = _argc;
+    //*pargc = pargc;
     *pargv = gb_argv;
     return 0;
 
   error:
-    while (--_argc >= 0) {
-        free(gb_argv[_argc]);
+    while (--(*pargc) >= 0) {
+        free(gb_argv[(*pargc)]);
     }
     return -1;
 #endif
@@ -2473,7 +2606,7 @@ col must be in the correct format RRGGBB (in hex)
 */
 rgb_color color_str2rgb_color(color_str col)
 {
-    return (rgb_color) {CHAR2INT(col[0])*16 + CHAR2INT(col[1]), 
+    return {CHAR2INT(col[0])*16 + CHAR2INT(col[1]), 
         CHAR2INT(col[2])*16 + CHAR2INT(col[3]), 
         CHAR2INT(col[4])*16 + CHAR2INT(col[5]) };
 }
@@ -2695,6 +2828,7 @@ void usage()
 
 int main(int argc, char *argv[])
 {
+  MagickWandGenesis();
     gb_argv0 = path_2_file(argv[0]);
     setvbuf(stderr, NULL, _IONBF, 0); // turn off buffering in mingw
 
@@ -2708,17 +2842,17 @@ int main(int argc, char *argv[])
     }
 
     // set locale
-    __attribute__((unused)) char *locale = setlocale(LC_ALL, "");
+    char *locale = setlocale(LC_ALL, "");
     //av_log(NULL, AV_LOG_VERBOSE, "locale: %s\n", locale);
 
     /* get & check options */
     int parse_error = 0;
     int c;
-    while (-1 != (c = getopt(argc, argv, "a:b:B:c:C:D:e:E:f:F:g:h:iIj:k:L:nN:o:O:pPqr:s:tT:vVw:WzZ"))) {
+    while (-1 != (c = getopt_a(argc, argv, "a:b:B:c:C:D:e:E:f:F:g:h:iIj:k:L:nN:o:O:pPqr:s:tT:vVw:WzZ"))) {
+      double tmp_a_ratio = 0;
         switch (c) {
-        double tmp_a_ratio = 0;
         case 'a':
-            if (0 == get_double_opt('a', &tmp_a_ratio, optarg, 1)) { // success
+            if (0 == get_double_opt('a', &tmp_a_ratio, optarg_a, 1)) { // success
                 gb_a_ratio.num = tmp_a_ratio * 10000;
                 gb_a_ratio.den = 10000;
             } else {
@@ -2726,7 +2860,7 @@ int main(int argc, char *argv[])
             }
             break;
         case 'b':
-            parse_error += get_double_opt('b', &gb_b_blank, optarg, 0);
+          parse_error += get_double_opt('b', &gb_b_blank, optarg_a, 0);
             if (gb_b_blank < .2) {
                 av_log(NULL, LOG_INFO, "%s: -b %.2f might be too extreme; try -b .5\n", gb_argv0, gb_b_blank);
             }
@@ -2736,41 +2870,41 @@ int main(int argc, char *argv[])
             }
             break;
         case 'B':
-            parse_error += get_double_opt('B', &gb_B_begin, optarg, 0);
+          parse_error += get_double_opt('B', &gb_B_begin, optarg_a, 0);
             break;
         case 'c':
-            parse_error += get_int_opt('c', &gb_c_column, optarg, 1);
+          parse_error += get_int_opt('c', &gb_c_column, optarg_a, 1);
             break;
         case 'C':
-            parse_error += get_double_opt('C', &gb_C_cut, optarg, 1);
+          parse_error += get_double_opt('C', &gb_C_cut, optarg_a, 1);
             break;
         case 'D':
-            parse_error += get_int_opt('D', &gb_D_edge, optarg, 0);
+          parse_error += get_int_opt('D', &gb_D_edge, optarg_a, 0);
             if (gb_D_edge > 0 
                 && (gb_D_edge < 4 || gb_D_edge > 12)) {
                 av_log(NULL, LOG_INFO, "%s: -D%d might be too extreme; try -D4, -D6, or -D8\n", gb_argv0, gb_D_edge);
             }
             break;
         case 'e':
-            gb_e_ext = optarg;
+          gb_e_ext = optarg_a;
             break;
         case 'E':
-            parse_error += get_double_opt('E', &gb_E_end, optarg, 0);
+          parse_error += get_double_opt('E', &gb_E_end, optarg_a, 0);
             break;
         case 'f':
-            gb_f_fontname = optarg;
+          gb_f_fontname = optarg_a;
             if (0 == strcmp(gb_F_ts_fontname, GB_F_FONTNAME)) {
                 gb_F_ts_fontname = gb_f_fontname;
             }
             break;
         case 'F':
-            parse_error += get_format_opt('F', optarg);
+          parse_error += get_format_opt('F', optarg_a);
             break;
         case 'g':
-            parse_error += get_int_opt('g', &gb_g_gap, optarg, 0);
+          parse_error += get_int_opt('g', &gb_g_gap, optarg_a, 0);
             break;
         case 'h':
-            parse_error += get_int_opt('h', &gb_h_height, optarg, 0);
+          parse_error += get_int_opt('h', &gb_h_height, optarg_a, 0);
             break;
         case 'i':
             gb_i_info = 0;
@@ -2779,25 +2913,25 @@ int main(int argc, char *argv[])
             gb_I_individual = 1;
             break;
         case 'j':
-            parse_error += get_int_opt('j', &gb_j_quality, optarg, 1);
+          parse_error += get_int_opt('j', &gb_j_quality, optarg_a, 1);
             break;
         case 'k': // background color
-            parse_error += get_color_opt('k', &gb_k_bcolor, optarg);
+          parse_error += get_color_opt('k', &gb_k_bcolor, optarg_a);
             break;
         case 'L':
-            parse_error += get_location_opt('L', optarg);
+          parse_error += get_location_opt('L', optarg_a);
             break;
         case 'n':
             gb_n_normal = 1; // normal priority
             break;
         case 'N':
-            gb_N_suffix = optarg;
+          gb_N_suffix = optarg_a;
             break;
         case 'o':
-            gb_o_suffix = optarg;
+          gb_o_suffix = optarg_a;
             break;
         case 'O':
-            gb_O_outdir = optarg;
+          gb_O_outdir = optarg_a;
             rem_trailing_slash(gb_O_outdir);
             break;
         case 'p':
@@ -2810,16 +2944,16 @@ int main(int argc, char *argv[])
             gb_q_quiet = 1; //quiet
             break;
         case 'r':
-            parse_error += get_int_opt('r', &gb_r_row, optarg, 0);
+          parse_error += get_int_opt('r', &gb_r_row, optarg_a, 0);
             break;
         case 's':
-            parse_error += get_int_opt('s', &gb_s_step, optarg, 0);
+          parse_error += get_int_opt('s', &gb_s_step, optarg_a, 0);
             break;
         case 't':
             gb_t_timestamp = 0; // off
             break;
         case 'T':
-            gb_T_text = optarg;
+          gb_T_text = optarg_a;
             break;
         case 'v':
             gb_v_verbose = 1; // verbose
@@ -2829,7 +2963,7 @@ int main(int argc, char *argv[])
             av_log(NULL, LOG_INFO, "%s: -V is only used for debugging\n", gb_argv0);
             break;
         case 'w':
-            parse_error += get_int_opt('w', &gb_w_width, optarg, 0);
+          parse_error += get_int_opt('w', &gb_w_width, optarg_a, 0);
             break;
         case 'W':
             gb_W_overwrite = 0;
@@ -2887,7 +3021,7 @@ int main(int argc, char *argv[])
     /* create output directory */
     if (NULL != gb_O_outdir && !is_dir(gb_O_outdir)) {
 #ifdef WIN32
-        int ret = mkdir(gb_O_outdir);
+        int ret = _mkdir(gb_O_outdir);
 #else
         int ret = mkdir(gb_O_outdir, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
 #endif
@@ -2925,5 +3059,6 @@ int main(int argc, char *argv[])
         fflush(stderr);
         getchar();
     }
+    MagickWandTerminus();
     return 0;
 }
