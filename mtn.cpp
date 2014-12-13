@@ -43,8 +43,14 @@
 
 #include <assert.h>
 #include <ctype.h>
+
+#ifdef WIN32
 #include <direct.h>
 #include "direntvc.h"
+#else
+#include <dirent.h>
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <locale.h>
@@ -53,11 +59,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-//#include <sys/time.h>
+
+#ifdef WIN32
 #include <time.h>
-//#include <unistd.h>
 #include "getopt.h"
 #include "inttypes.h"
+#else
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
+#endif
 
 extern "C"{
 #include "libavcodec/avcodec.h"
@@ -90,8 +101,15 @@ extern "C"{
     #include "fake_tchar.h"
     #define UTF8_2_WC(dst, src, size) ((dst) = (src)) // cant be used to check required size
     #define WC_2_UTF8(dst, src, size) ((dst) = (src))
-    #define MYCW2A(s) (s)
-    #define MYCA2W(s) (s)
+    #define CW2A(s) (s)
+    #define CA2W(s) (s)
+    #define optarg_a optarg
+    #define wsprintf sprintf
+    #define _WDIR _TDIR
+    #define _wopendir _topendir
+    #define _wdirent _tdirent
+    #define _wreaddir _treaddir
+    #define _wclosedir _tclosedir
 #endif
 
 // newline character for info file
@@ -112,10 +130,17 @@ typedef struct rgb_color
 } rgb_color;
 typedef char color_str[7]; // "RRGGBB" (in hex)
 
+#ifdef WIN32
 #define COLOR_BLACK /*(rgb_color)*/{0, 0, 0}
 #define COLOR_GREY /*(rgb_color)*/{128, 128, 128}
 #define COLOR_WHITE /*(rgb_color)*/{255, 255, 255}
 #define COLOR_INFO /*(rgb_color)*/{85, 85, 85}
+#else
+#define COLOR_BLACK (rgb_color){0, 0, 0}
+#define COLOR_GREY (rgb_color){128, 128, 128}
+#define COLOR_WHITE (rgb_color){255, 255, 255}
+#define COLOR_INFO (rgb_color){85, 85, 85}
+#endif
 
 typedef struct shot
 {
@@ -148,7 +173,12 @@ typedef struct thumbnail
 #define LOG_INFO 0
 
 /* command line options & default values */
+#ifdef WIN32
 #define GB_A_RATIO /*(AVRational)*/{0, 1}
+#else
+#define GB_A_RATIO (AVRational){0, 1}
+#endif
+
 AVRational gb_a_ratio = GB_A_RATIO;
 #define GB_B_BLANK 0.8
 double gb_b_blank = GB_B_BLANK;
@@ -913,8 +943,13 @@ void save_AVFrame(AVFrame *pFrame, int src_width, int src_height, int pix_fmt,
         goto cleanup;
     }
     avpicture_fill((AVPicture *) pFrameRGB, rgb_buffer, PIX_FMT_RGB24, dst_width, dst_height);
+#ifdef WIN32
     pSwsCtx = sws_getContext(src_width, src_height, (AVPixelFormat)pix_fmt,
         dst_width, dst_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
+#else
+    pSwsCtx = sws_getContext(src_width, src_height, pix_fmt,
+        dst_width, dst_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
+#endif
     if (NULL == pSwsCtx) { // sws_getContext is not documented
         av_log(NULL, AV_LOG_ERROR, "  sws_getContext failed\n");
         goto cleanup;
@@ -1246,7 +1281,7 @@ uint64_t gb_video_pkt_pts = AV_NOPTS_VALUE;
  * buffer. We use this to store the global_pts in
  * a frame at the time it is allocated.
  */
-int our_get_buffer2(struct AVCodecContext *c, AVFrame *pic, int) {
+int our_get_buffer2(struct AVCodecContext *c, AVFrame *pic, int iii) {
   int ret = avcodec_default_get_buffer(c, pic);
   uint64_t *pts = (uint64_t *)av_malloc(sizeof(uint64_t));
   *pts = gb_video_pkt_pts;
@@ -1295,7 +1330,7 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
         av_free_packet(&packet)) {
 
         if (av_read_frame(pFormatCtx, &packet) < 0) {
-          if ((pFormatCtx->pb->error) != 0)return -1;
+          if (pFormatCtx->pb && pFormatCtx->pb->error)return -1;
           else continue;
         }
 
@@ -1321,7 +1356,7 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
         gb_video_pkt_pts = packet.pts;
 
         // Decode video frame
-        avcodec_decode_video2(pCodecCtx, pFrame, &got_picture, &packet);
+        int ret = avcodec_decode_video2(pCodecCtx, pFrame, &got_picture, &packet);
         // error is ignored. perhaps packets read are not enough.
         av_log(NULL, AV_LOG_VERBOSE, "*avcodec_decode_video: got_picture: %d, key_frame: %d, pict_type: %d\n", got_picture, pFrame->key_frame, pFrame->pict_type);
 
@@ -1685,12 +1720,10 @@ void make_thumbnail(char *file)
     // Find the first video stream
     // int av_find_default_stream_index(AVFormatContext *s)
     int video_index = -1;
-    for (i = 0; i < pFormatCtx->nb_streams; i++) {
-        if (AVMEDIA_TYPE_VIDEO == pFormatCtx->streams[i]->codec->codec_type) {
-            video_index = i;
-            break;
-        }
-    }
+    
+    for (i=0;i<pFormatCtx->nb_streams; i++)pFormatCtx->streams[i]->discard = AVDISCARD_ALL;
+    video_index = av_find_best_stream(pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+    
     if (video_index == -1) {
         av_log(NULL, AV_LOG_ERROR, "  couldn't find a video stream\n");
         goto cleanup;
@@ -1954,7 +1987,7 @@ void make_thumbnail(char *file)
 
     /* add info & text */ // do this early so when font is not found we'll quit early
     if (NULL != all_text && strlen(all_text) > 0) {
-      rgb_color wcol = COLOR_WHITE;
+        rgb_color wcol = COLOR_WHITE;
         char *str_ret = image_string(tn.out_ip, 
             gb_f_fontname, gb_F_info_color, gb_F_info_font_size, 
             gb_L_info_location, gb_g_gap, all_text, 0, wcol);
@@ -2353,18 +2386,30 @@ void make_thumbnail(char *file)
 
 /* modified from glibc
 */
-int __cdecl alphasort(const void *a, const void *b)
+#ifdef WIN32
+int __cdecl  alphasort(const void *a, const void *b)
 {
     return strcoll(*(const char **) a, *(const char **) b);
     //return strcasecmp(*(const char **) a, *(const char **) b);
 }
+#endif
+
 
 /* modified from glibc
 */
-int _cdecl alphacasesort(const void *a, const void *b)
+#ifdef WIN32
+int _cdecl 
+#else
+int 
+#endif
+ alphacasesort(const void *a, const void *b)
 {
     //return strcoll(*(const char **) a, *(const char **) b);
+#ifdef WIN32
     return stricmp(*(const char **) a, *(const char **) b);
+#else
+    return strcasecmp(*(const char **) a, *(const char **) b);
+#endif
 }
 
 /*
@@ -2612,10 +2657,16 @@ col must be in the correct format RRGGBB (in hex)
 */
 rgb_color color_str2rgb_color(color_str col)
 {
+#ifdef WIN32
     rgb_color r = {CHAR2INT(col[0])*16 + CHAR2INT(col[1]), 
         CHAR2INT(col[2])*16 + CHAR2INT(col[3]), 
         CHAR2INT(col[4])*16 + CHAR2INT(col[5]) };
     return r;
+#else
+    return (rgb_color){CHAR2INT(col[0])*16 + CHAR2INT(col[1]), 
+        CHAR2INT(col[2])*16 + CHAR2INT(col[3]), 
+        CHAR2INT(col[4])*16 + CHAR2INT(col[5]) };
+#endif
 }
 
 /*
