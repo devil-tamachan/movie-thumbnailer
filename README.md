@@ -3,7 +3,7 @@ movie-thumbnailer
 
 Mod version. [Original version -> http://moviethumbnail.sourceforge.net/][1]
 
-VC2010でコンパイル可能。ImageMagick[3]とffmpeg[4]のdll/libをとって来ればOK。
+VC2010でコンパイル可能。[ImageMagick][3]と[ffmpeg][4]のdll/libをとって来ればOK。
 
 [Download Windows Binary][2]
 
