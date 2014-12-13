@@ -57,9 +57,7 @@
 #include <time.h>
 //#include <unistd.h>
 #include "getopt.h"
-
-#include <atlbase.h>
-#include <atlconv.h>
+#include "inttypes.h"
 
 extern "C"{
 #include "libavcodec/avcodec.h"
@@ -77,6 +75,8 @@ extern "C"{
     unsigned int _CRT_fmode = _O_BINARY;  // default binary file including stdin, stdout, stderr
     #include <tchar.h>
     #include <windows.h>
+    #include <atlbase.h>
+    #include <atlconv.h>
     #ifdef _UNICODE
         #define UTF8_2_WC(wdst, src, size) MultiByteToWideChar(CP_UTF8, 0, (src), -1, (wdst), (size))
         #define WC_2_UTF8(dst, wsrc, size) WideCharToMultiByte(CP_UTF8, 0, (wsrc), -1, (dst), (size), NULL, NULL)
@@ -84,10 +84,14 @@ extern "C"{
         #define UTF8_2_WC(dst, src, size) ((dst) = (src)) // cant be used to check required size
         #define WC_2_UTF8(dst, src, size) ((dst) = (src))
     #endif
+    #define MYCW2A CW2A
+    #define MYCA2W CA2W
 #else
     #include "fake_tchar.h"
     #define UTF8_2_WC(dst, src, size) ((dst) = (src)) // cant be used to check required size
     #define WC_2_UTF8(dst, src, size) ((dst) = (src))
+    #define MYCW2A(s) (s)
+    #define MYCA2W(s) (s)
 #endif
 
 // newline character for info file
@@ -275,7 +279,7 @@ char *format_size(int64_t size, char *unit)
     static char buf[20]; // FIXME
 
     if (size < 1024) {
-        sprintf(buf, "%"PRId64" %s", size, unit);
+        sprintf(buf, "%I64d %s", size, unit);
     } else if (size < 1024*1024) {
         sprintf(buf, "%.2f Ki%s", size/1024.0, unit);
     } else if (size < 1024*1024*1024) {
@@ -1173,7 +1177,8 @@ void dump_format_context(AVFormatContext *p, int index, char *url, int  is_outpu
     //dump_format(p, index, url, is_output);
 
     // dont show scaling info at this time because we dont have the proper sample_aspect_ratio
-    av_log(NULL, LOG_INFO, get_stream_info(p, url, 0, GB_A_RATIO)); 
+    AVRational gba = GB_A_RATIO;
+    av_log(NULL, LOG_INFO, get_stream_info(p, url, 0, gba)); 
 
     av_log(NULL, AV_LOG_VERBOSE, "start_time av: %"PRId64", duration av: %"PRId64"\n",
         p->start_time, p->duration);
@@ -1289,11 +1294,9 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
         //|| (1 == key_only && 1 != pFrame->key_frame); // is there a reason why not use this? t_warhawk_review_gt_h264.mov (svq3) seems to set only pict_type
         av_free_packet(&packet)) {
 
-        if (0 < av_read_frame(pFormatCtx, &packet)) {
-          if ((pFormatCtx->pb->error) != 0) { // from ffplay - not documented
-                return -1;
-            }
-            return 0;
+        if (av_read_frame(pFormatCtx, &packet) < 0) {
+          if ((pFormatCtx->pb->error) != 0)return -1;
+          else continue;
         }
 
         // Is this a packet from the video stream?
@@ -1951,9 +1954,10 @@ void make_thumbnail(char *file)
 
     /* add info & text */ // do this early so when font is not found we'll quit early
     if (NULL != all_text && strlen(all_text) > 0) {
+      rgb_color wcol = COLOR_WHITE;
         char *str_ret = image_string(tn.out_ip, 
             gb_f_fontname, gb_F_info_color, gb_F_info_font_size, 
-            gb_L_info_location, gb_g_gap, all_text, 0, COLOR_WHITE);
+            gb_L_info_location, gb_g_gap, all_text, 0, wcol);
         if (NULL != str_ret) {
             av_log(NULL, AV_LOG_ERROR, "  %s; font problem? see -f option\n", str_ret);
             goto cleanup;
@@ -2212,9 +2216,11 @@ void make_thumbnail(char *file)
             /* stamp idx & blank & edge for debugging */
             if (gb_v_verbose > 0) {
                 char idx_str[10]; // FIXME
+                static rgb_color wcol = COLOR_WHITE;
+                static rgb_color bcol = COLOR_BLACK;
                 sprintf(idx_str, "idx: %d, blank: %.2f\n%.6f  %.6f\n%.6f  %.6f\n%.6f  %.6f", 
                     idx, blank, edge[0], edge[1], edge[2], edge[3], edge[4], edge[5]);
-                image_string(ip, gb_f_fontname, COLOR_WHITE, gb_F_ts_font_size, 2, 0, idx_str, 1, COLOR_BLACK);
+                image_string(ip, gb_f_fontname, wcol, gb_F_ts_font_size, 2, 0, idx_str, 1, bcol);
             }
         }
 
@@ -2606,9 +2612,10 @@ col must be in the correct format RRGGBB (in hex)
 */
 rgb_color color_str2rgb_color(color_str col)
 {
-    return {CHAR2INT(col[0])*16 + CHAR2INT(col[1]), 
+    rgb_color r = {CHAR2INT(col[0])*16 + CHAR2INT(col[1]), 
         CHAR2INT(col[2])*16 + CHAR2INT(col[3]), 
         CHAR2INT(col[4])*16 + CHAR2INT(col[5]) };
+    return r;
 }
 
 /*
