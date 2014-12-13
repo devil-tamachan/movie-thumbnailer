@@ -1,11 +1,12 @@
-# older ffmpeg doesn't have swscale. you might need to build a newer ffmpeg from source
+CC=gcc
+CFLAGS=-W -Wall -m32 -O0 -g -D_FILE_OFFSET_BITS=64 -mms-bitfields -mtune=i486 -march=i386 -I/usr/local/include -I/usr/include/ImageMagick -L/usr/local/lib -L/usr/lib/i386-linux-gnu
+LDFLAGS= -lm -lMagickWand -lavcodec -lavformat -lavcodec -lswscale -lavutil -lswresample -pthread -lz -lbz2 -lz -llzma
+#LDFLAGS= -lz
+#LIBS=/usr/local/lib/bgd.lib
+#LIBS=/d/gd-2.0.34-win32/lib/bgd.lib /usr/local/bin/avcodec-51.dll /usr/local/bin/avformat-51.dll /usr/local/bin/avutil-49.dll /usr/local/bin/swscale-0.dll
+#LIBS=/usr/local/lib/bgd.lib /usr/local/lib/avcodec-51.lib /usr/local/lib/avformat-52.lib /usr/local/lib/avutil-49.lib /usr/local/lib/swscale-0.lib
 
-CFLAGS=-W -Wall -O3 -s -D_FILE_OFFSET_BITS=64 -mtune=i686 -march=i386 -I/home/tuitfun/include -L/home/tuitfun/lib
-LDFLAGS= -lavcodec -lavformat -lavcodec -lswscale -lavutil -lgd -lfreetype -ljpeg -lz -lm -lpthread
-#LIBS=/home/tuitfun/lib/libavcodec.a /home/tuitfun/lib/libavformat.a /home/tuitfun/lib/libavutil.a /home/tuitfun/lib/libswscale.a
-#LIBS=/usr/lib/libgd.a
-
-all: mtn mtns
+all: mtn
 
 mtn: mtn.c Makefile
 	$(CC) -o mtn mtn.c $(CFLAGS) $(LDFLAGS) $(LIBS)
@@ -13,5 +14,9 @@ mtn: mtn.c Makefile
 mtns: mtn.c Makefile
 	$(CC) -o mtns mtn.c -static $(CFLAGS) $(LDFLAGS) $(LIBS)
 
+test: test.c Makefile
+	$(CC) -o test test.c $(CFLAGS) $(LDFLAGS) $(LIBS)
+
 clean:
-	rm -f mtn mtns
+	rm -f mtn mtns test
+
