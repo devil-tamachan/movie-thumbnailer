@@ -44,7 +44,7 @@
 #include <assert.h>
 #include <ctype.h>
 
-#ifdef WIN32
+#if defined(WIN32)
 #include <direct.h>
 #include "direntvc.h"
 #else
@@ -60,10 +60,15 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#ifdef WIN32
+#if defined(WIN32)
 #include <time.h>
+#if _MSC_VER < 1800
 #include "getopt.h"
 #include "inttypes.h"
+#else
+#include <getopt.h>
+#include "inttypes.h"
+#endif
 #else
 #include <sys/time.h>
 #include <time.h>
@@ -103,6 +108,8 @@ extern "C"{
     #define WC_2_UTF8(dst, src, size) ((dst) = (src))
     #define CW2A(s) (s)
     #define CA2W(s) (s)
+    #define CW2A(s, c) (s)
+    #define CA2W(s, c) (s)
     #define optarg_a optarg
     #define wsprintf sprintf
     #define _WDIR _TDIR
@@ -611,7 +618,7 @@ int save_jpg(MagickWand *ip, char *outname)
         return -1;
       }
       fclose(out_fp);
-      if (MagickWriteImages(ip, CW2A(outname_w), MagickFalse) == MagickFalse) { // FIXME: this should work?
+      if (MagickWriteImages(ip, outname, MagickFalse) == MagickFalse) { // FIXME: this should work?
         av_log(NULL, AV_LOG_ERROR, "  saving output image failed: %s\n", strerror(errno));
         return 0;
       }
@@ -1160,7 +1167,7 @@ char *get_stream_info(AVFormatContext *ic, char *url, int strip_path, AVRational
         file_name = path_2_file(url);
     }
 
-    sprintf(buf, "File: %s", file_name);
+    sprintf(buf, "File: %s", CW2A(CA2W(file_name, CP_UTF8)));
     //sprintf(buf + strlen(buf), " (%s)", ic->iformat->name);
     sprintf(buf + strlen(buf), "%sSize: %"PRId64" bytes (%s)", NEWLINE, (ic->pb ? avio_size(ic->pb) : 0), format_size((ic->pb ? avio_size(ic->pb) : 0), "B"));
     if (ic->duration != AV_NOPTS_VALUE) { // FIXME: gcc warning: comparison between signed and unsigned
@@ -1330,6 +1337,7 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
         av_free_packet(&packet)) {
 
         if (av_read_frame(pFormatCtx, &packet) < 0) {
+          //if ((pFormatCtx->pb->error) != 0)return -1;
           if (pFormatCtx->pb && pFormatCtx->pb->error)return -1;
           else continue;
         }
@@ -1522,7 +1530,7 @@ int really_seek(AVFormatContext *pFormatCtx, int index, int64_t timestamp, int f
 {
     assert(flags == 0 || flags == AVSEEK_FLAG_BACKWARD);
     int ret;
-
+    
     /* first try av_seek_frame */
     ret = av_seek_frame(pFormatCtx, index, timestamp, flags);
     if (ret >= 0) { // success
@@ -1720,9 +1728,15 @@ void make_thumbnail(char *file)
     // Find the first video stream
     // int av_find_default_stream_index(AVFormatContext *s)
     int video_index = -1;
+    for (i = 0; i < pFormatCtx->nb_streams; i++) {
+      if (AVMEDIA_TYPE_VIDEO == pFormatCtx->streams[i]->codec->codec_type) {
+        video_index = i;
+        break;
+      }
+    }
     
-    for (i=0;i<pFormatCtx->nb_streams; i++)pFormatCtx->streams[i]->discard = AVDISCARD_ALL;
-    video_index = av_find_best_stream(pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+  //  for (i=0;i<pFormatCtx->nb_streams; i++)pFormatCtx->streams[i]->discard = AVDISCARD_ALL;
+  //  video_index = av_find_best_stream(pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
     
     if (video_index == -1) {
         av_log(NULL, AV_LOG_ERROR, "  couldn't find a video stream\n");
@@ -2010,6 +2024,11 @@ void make_thumbnail(char *file)
         seek_mode = 0;
         av_log(NULL, LOG_INFO, "  *** using non-seek mode -- slower but more accurate timing.\n");
     }
+    
+    if(seek_mode)
+    {
+      seek_mode = /*!*/!(pFormatCtx->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", pFormatCtx->iformat->name);
+    }
 
     /* decode & fill in the shots */
   restart:
@@ -2029,6 +2048,8 @@ void make_thumbnail(char *file)
     int64_t prevfound_pts = -1; // pts of previous decoding
     MagickWand *edge_ip = NewMagickWand(); // edge image
 
+    //int64_t maxfilesize = pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0;
+
     for (idx = 0; idx < thumb_nb; idx++) {
 
         int64_t eff_target = seek_target + seek_evade; // effective target
@@ -2037,7 +2058,7 @@ void make_thumbnail(char *file)
         format_time(calc_time(eff_target, pStream->time_base, start_time), time_tmp, ':');
 
         /* for some formats, previous seek might over shoot pass this seek_target; is this a bug in libavcodec? */
-        if (prevshot_pts > eff_target && 0 == evade_try) {
+        if (prevshot_pts > eff_target && 0 == evade_try && seek_mode) {
             av_log(NULL, LOG_INFO, "  skipping shot at %s because of previous seek or evasions\n", time_tmp);
             idx--;
             thumb_nb--;
@@ -2073,7 +2094,18 @@ void make_thumbnail(char *file)
             }
             //av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
         } else { // non-seek mode -- we keep decoding until we get to the next shot
-            found_pts = 0;
+          found_pts = 0;
+
+          //int64_t bytepos = maxfilesize * idx / thumb_nb;
+          //int64_t seek_min    = 0;//INT64_MIN;
+          //int64_t seek_max    = maxfilesize;//INT64_MAX;
+          //av_log(NULL, LOG_INFO, "AVSEEK_FLAG_BYTE: byte_pos: %"PRId64", file_size: %"PRId64", duration_tb: %"PRId64"\n", bytepos, (pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0), duration_tb);
+          //while(/*av_seek_frame(pFormatCtx, video_index, bytepos, AVSEEK_FLAG_BYTE)*/avformat_seek_file(pFormatCtx, video_index, seek_min, bytepos, seek_max, AVSEEK_FLAG_BYTE) < 0 && bytepos < maxfilesize)
+          //{
+          //  bytepos++;
+          //  av_log(NULL, LOG_INFO, "AVSEEK_FLAG_BYTE: byte_pos: %"PRId64", file_size: %"PRId64", duration_tb: %"PRId64"\n", bytepos, (pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0), duration_tb);
+          //}
+         
             while (found_pts < eff_target) {
                 // we should check if it's taking too long for this loop. FIXME
                 ret = read_and_decode(pFormatCtx, video_index, pCodecCtx, pFrame, &found_pts, 0, 0);
@@ -2083,7 +2115,7 @@ void make_thumbnail(char *file)
                     av_log(NULL, AV_LOG_ERROR, "  read_and_decode failed!\n");
                     goto cleanup;
                 }
-                //av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
+                av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
             }
         }
         //struct timeval dfinish; // DEBUG
@@ -2155,7 +2187,7 @@ void make_thumbnail(char *file)
         */
 
         // got same picture as previous shot, we'll skip it
-        if (prevshot_pts == found_pts && 0 == evade_try) {
+        if (prevshot_pts == found_pts && 0 == evade_try && seek_mode) {
             av_log(NULL, LOG_INFO, "  skipping shot at %s because got previous shot\n", time_tmp);
             idx--;
             thumb_nb--;
@@ -2219,10 +2251,6 @@ void make_thumbnail(char *file)
 
           bgb = DestroyPixelWand(bgb);
         }
-#ifdef _DEBUG
-        FrameRGB_2_gdImage(pFrameRGB, ip);
-        MagickWriteImages(ip, "C:\\tmp\\dbg.jpg", MagickFalse);
-#endif
 
         /* if debugging, save the edge instead */
         if (gb_v_verbose > 0 && NULL != edge_ip) {
@@ -2243,9 +2271,7 @@ void make_thumbnail(char *file)
                 av_log(NULL, AV_LOG_ERROR, "  %s; font problem? see -f option or -F option\n", str_ret);
                 goto cleanup; // LEAK: ip, edge_ip
             }
-#ifdef _DEBUG
-            MagickWriteImages(ip, "C:\\tmp\\dbg3.jpg", MagickFalse);
-#endif
+            
             /* stamp idx & blank & edge for debugging */
             if (gb_v_verbose > 0) {
                 char idx_str[10]; // FIXME
@@ -2323,7 +2349,7 @@ void make_thumbnail(char *file)
         goto cleanup;
       }
       fclose(out_fp);
-      if (MagickWriteImages(tn.out_ip, CW2A(out_filename_w), MagickFalse) == MagickFalse) { // FIXME: this should work?
+      if (MagickWriteImages(tn.out_ip, CW2A(out_filename_w, CP_UTF8), MagickFalse) == MagickFalse) { // FIXME: this should work?
         av_log(NULL, AV_LOG_ERROR, "  saving output image failed: %s\n", strerror(errno));
         goto cleanup;
       }
@@ -3099,7 +3125,18 @@ int main(int argc, char *argv[])
     //gdUseFontConfig(1); // set GD to use fontconfig patterns
 
     /* process movie files */
+#ifdef WIN32
+    int pNumArgs = 0;
+    LPCWSTR * pArgsW = (LPCWSTR *)CommandLineToArgvW(GetCommandLineW(), &pNumArgs);
+    {
+      CW2A filenameUtf8(pArgsW[optind], CP_UTF8);
+      LPSTR pFilename = filenameUtf8;
+      process_loop(argc - optind, &pFilename);
+    }
+    LocalFree(pArgsW);
+#else
     process_loop(argc - optind, argv + optind);
+#endif
 
   exit:
     // clean up
