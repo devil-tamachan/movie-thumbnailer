@@ -37,6 +37,7 @@
 
 // enable unicode functions in mingw
 #ifdef WIN32
+#define _CRT_SECURE_NO_WARNINGS
 //    #define UNICODE
  //   #define _UNICODE
 #endif
@@ -91,6 +92,7 @@ extern "C"{
     unsigned int _CRT_fmode = _O_BINARY;  // default binary file including stdin, stdout, stderr
     #include <tchar.h>
     #include <windows.h>
+#define _ATL_NO_EXCEPTIONS
     #include <atlbase.h>
     #include <atlconv.h>
     #ifdef _UNICODE
@@ -1167,7 +1169,7 @@ char *get_stream_info(AVFormatContext *ic, char *url, int strip_path, AVRational
         file_name = path_2_file(url);
     }
 
-    sprintf(buf, "File: %s", CW2A(CA2W(file_name, CP_UTF8)));
+    sprintf(buf, "File: %s", (LPCSTR)CW2A(CA2W(file_name, CP_UTF8)));
     //sprintf(buf + strlen(buf), " (%s)", ic->iformat->name);
     sprintf(buf + strlen(buf), "%sSize: %"PRId64" bytes (%s)", NEWLINE, (ic->pb ? avio_size(ic->pb) : 0), format_size((ic->pb ? avio_size(ic->pb) : 0), "B"));
     if (ic->duration != AV_NOPTS_VALUE) { // FIXME: gcc warning: comparison between signed and unsigned
@@ -1597,45 +1599,8 @@ int make_unique_name(char *name, char *suffix, int unum)
     return unum;
 }
 
-/*
-*/
-void make_thumbnail(char *file)
+bool prepare_filenames(thumbnail &tn, char *file)
 {
-    av_log(NULL, AV_LOG_VERBOSE, "make_thumbnail: %s\n", file);
-    static int nb_file = 0; // FIXME: static
-    nb_file++;
-
-  //  struct timeval tstart;
-    //gettimeofday(&tstart, NULL);
-
-    int i;
-    thumbnail tn; // thumbnail data & info
-    thumb_new(&tn);
-    // shot sh; // shot info
-    //shot fill_buffer[gb_c_column-1]; // skipped shots to fill the last row
-    shot *fill_buffer = (shot *)calloc(1, sizeof(shot) * (gb_c_column - 1)); // skipped shots to fill the last row
-    for (i=0; i<gb_c_column-1; i++) {
-      fill_buffer[i].ip = NewMagickWand();
-    }
-    int nb_shots = 0; // # of decoded shots (stat purposes)
-
-    /* these are checked during cleaning up, must be NULL if not used */
-    AVFormatContext *pFormatCtx = NULL;
-    AVCodecContext *pCodecCtx = NULL;
-    AVFrame *pFrame = NULL;
-    AVFrame *pFrameRGB = NULL;
-    uint8_t *rgb_buffer = NULL;
-    struct SwsContext *pSwsCtx = NULL;
-    tn.out_ip = NewMagickWand();
-    //FILE *out_fp = NULL;
-    FILE *info_fp = NULL;
-    MagickWand *ip = NewMagickWand();
-
-    int t_timestamp = gb_t_timestamp; // local timestamp; can be turned off; 0 = off
-    int ret;
-
-    av_log(NULL, LOG_INFO, "\n");
-
     /* check if output file already exists & open output file */
     if (NULL != gb_O_outdir && strlen(gb_O_outdir) > 0) {
         strcpy_va(tn.out_filename, 3, gb_O_outdir, "/", path_2_file(file));
@@ -1674,13 +1639,58 @@ void make_thumbnail(char *file)
     if (0 == gb_W_overwrite) { // dont overwrite mode
         if (is_reg(tn.out_filename)) {
             av_log(NULL, LOG_INFO, "%s: output file %s already exists. omitted.\n", gb_argv0, tn.out_filename);
-            goto cleanup;
+            return false;
         }
         if (NULL != gb_N_suffix && is_reg(tn.info_filename)) {
             av_log(NULL, LOG_INFO, "%s: info file %s already exists. omitted.\n", gb_argv0, tn.info_filename);
-            goto cleanup;
+            return false;
         }
     }
+    
+    return true;
+}
+
+/*
+*/
+void make_thumbnail(char *file)
+{
+    av_log(NULL, AV_LOG_VERBOSE, "make_thumbnail: %s\n", file);
+    static int nb_file = 0; // FIXME: static
+    nb_file++;
+
+  //  struct timeval tstart;
+    //gettimeofday(&tstart, NULL);
+
+    int i;
+    thumbnail tn; // thumbnail data & info
+    thumb_new(&tn);
+    // shot sh; // shot info
+    //shot fill_buffer[gb_c_column-1]; // skipped shots to fill the last row
+    shot *fill_buffer = (shot *)calloc(1, sizeof(shot) * (gb_c_column - 1)); // skipped shots to fill the last row
+    for (i=0; i<gb_c_column-1; i++) {
+      fill_buffer[i].ip = NewMagickWand();
+    }
+    int nb_shots = 0; // # of decoded shots (stat purposes)
+
+    /* these are checked during cleaning up, must be NULL if not used */
+    AVFormatContext *pFormatCtx = NULL;
+    AVCodecContext *pCodecCtx = NULL;
+    AVFrame *pFrame = NULL;
+    AVFrame *pFrameRGB = NULL;
+    uint8_t *rgb_buffer = NULL;
+    struct SwsContext *pSwsCtx = NULL;
+    tn.out_ip = NewMagickWand();
+    //FILE *out_fp = NULL;
+    FILE *info_fp = NULL;
+    MagickWand *ip = NewMagickWand();
+
+    int t_timestamp = gb_t_timestamp; // local timestamp; can be turned off; 0 = off
+    int ret;
+
+    av_log(NULL, LOG_INFO, "\n");
+    
+    if(!prepare_filenames(tn, file))goto cleanup;
+    
 #if defined(WIN32) && defined(_UNICODE)
     wchar_t out_filename_w[FILENAME_MAX];
     UTF8_2_WC(out_filename_w, tn.out_filename, FILENAME_MAX);
