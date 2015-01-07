@@ -931,76 +931,76 @@ MagickWand* detect_edge(AVFrame *pFrame, int width, int height, float *edge, flo
     return ip;
 }
 
-/* for debuging */
-void save_AVFrame(AVFrame *pFrame, int src_width, int src_height, int pix_fmt, 
-    char *filename, int dst_width, int dst_height)
-{
-    AVFrame *pFrameRGB = NULL;
-    uint8_t *rgb_buffer = NULL;
-    struct SwsContext *pSwsCtx = NULL;
-    MagickWand *ip = NewMagickWand();
-
-    pFrameRGB = av_frame_alloc();
-    if (pFrameRGB == NULL) {
-        av_log(NULL, AV_LOG_ERROR, "  couldn't allocate a video frame\n");
-        goto cleanup;
-    }
-    int rgb_bufsize = avpicture_get_size(PIX_FMT_RGB24, dst_width, dst_height);
-    rgb_buffer = (uint8_t *)av_malloc(rgb_bufsize);
-    if (NULL == rgb_buffer) {
-        av_log(NULL, AV_LOG_ERROR, "  av_malloc %d bytes failed\n", rgb_bufsize);
-        goto cleanup;
-    }
-    avpicture_fill((AVPicture *) pFrameRGB, rgb_buffer, PIX_FMT_RGB24, dst_width, dst_height);
-#ifdef WIN32
-    pSwsCtx = sws_getContext(src_width, src_height, (AVPixelFormat)pix_fmt,
-        dst_width, dst_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
-#else
-    pSwsCtx = sws_getContext(src_width, src_height, pix_fmt,
-        dst_width, dst_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
-#endif
-    if (NULL == pSwsCtx) { // sws_getContext is not documented
-        av_log(NULL, AV_LOG_ERROR, "  sws_getContext failed\n");
-        goto cleanup;
-    }
-
-    sws_scale(pSwsCtx, pFrame->data, pFrame->linesize, 0, src_height, 
-        pFrameRGB->data, pFrameRGB->linesize);
-
-
-    {
-      PixelWand *bg1 = NewPixelWand();
-      PixelSetColor(bg1, "#000000");
-      if (MagickNewImage(ip, dst_width, dst_height, bg1) == MagickFalse) {
-        av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", dst_width, dst_height);
-        goto cleanup;
-      }
-      bg1 = DestroyPixelWand(bg1);
-    }
-
-    /*
-    ip = gdImageCreateTrueColor(dst_width, dst_height);
-    if (NULL == ip) {
-        av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", dst_width, dst_height);
-        goto cleanup;
-    }*/
-    FrameRGB_2_gdImage(pFrameRGB, ip);
-    int ret = save_jpg(ip, filename);
-    if (0 != ret) {
-        av_log(NULL, AV_LOG_ERROR, "  save_jpg failed: %s\n", filename);
-        goto cleanup;
-    }
-
-  cleanup:
-    if (NULL != ip)
-      ip = DestroyMagickWand(ip);;
-    if (NULL != pSwsCtx)
-        sws_freeContext(pSwsCtx); // do we need to do this?
-    if (NULL != rgb_buffer)
-        av_free(rgb_buffer);
-    if (NULL != pFrameRGB)
-        av_free(pFrameRGB);
-}
+///* for debuging */
+//void save_AVFrame(AVFrame *pFrame, int src_width, int src_height, int pix_fmt, 
+//    char *filename, int dst_width, int dst_height)
+//{
+//    AVFrame *pFrameRGB = NULL;
+//    uint8_t *rgb_buffer = NULL;
+//    struct SwsContext *pSwsCtx = NULL;
+//    MagickWand *ip = NewMagickWand();
+//
+//    pFrameRGB = av_frame_alloc();
+//    if (pFrameRGB == NULL) {
+//        av_log(NULL, AV_LOG_ERROR, "  couldn't allocate a video frame\n");
+//        goto cleanup;
+//    }
+//    int rgb_bufsize = avpicture_get_size(PIX_FMT_RGB24, dst_width, dst_height);
+//    rgb_buffer = (uint8_t *)av_malloc(rgb_bufsize);
+//    if (NULL == rgb_buffer) {
+//        av_log(NULL, AV_LOG_ERROR, "  av_malloc %d bytes failed\n", rgb_bufsize);
+//        goto cleanup;
+//    }
+//    avpicture_fill((AVPicture *) pFrameRGB, rgb_buffer, PIX_FMT_RGB24, dst_width, dst_height);
+//#ifdef WIN32
+//    pSwsCtx = sws_getContext(src_width, src_height, (AVPixelFormat)pix_fmt,
+//        dst_width, dst_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
+//#else
+//    pSwsCtx = sws_getContext(src_width, src_height, pix_fmt,
+//        dst_width, dst_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
+//#endif
+//    if (NULL == pSwsCtx) { // sws_getContext is not documented
+//        av_log(NULL, AV_LOG_ERROR, "  sws_getContext failed\n");
+//        goto cleanup;
+//    }
+//
+//    sws_scale(pSwsCtx, pFrame->data, pFrame->linesize, 0, src_height, 
+//        pFrameRGB->data, pFrameRGB->linesize);
+//
+//
+//    {
+//      PixelWand *bg1 = NewPixelWand();
+//      PixelSetColor(bg1, "#000000");
+//      if (MagickNewImage(ip, dst_width, dst_height, bg1) == MagickFalse) {
+//        av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", dst_width, dst_height);
+//        goto cleanup;
+//      }
+//      bg1 = DestroyPixelWand(bg1);
+//    }
+//
+//    /*
+//    ip = gdImageCreateTrueColor(dst_width, dst_height);
+//    if (NULL == ip) {
+//        av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", dst_width, dst_height);
+//        goto cleanup;
+//    }*/
+//    FrameRGB_2_gdImage(pFrameRGB, ip);
+//    int ret = save_jpg(ip, filename);
+//    if (0 != ret) {
+//        av_log(NULL, AV_LOG_ERROR, "  save_jpg failed: %s\n", filename);
+//        goto cleanup;
+//    }
+//
+//  cleanup:
+//    if (NULL != ip)
+//      ip = DestroyMagickWand(ip);;
+//    if (NULL != pSwsCtx)
+//        sws_freeContext(pSwsCtx); // do we need to do this?
+//    if (NULL != rgb_buffer)
+//        av_free(rgb_buffer);
+//    if (NULL != pFrameRGB)
+//        av_free(pFrameRGB);
+//}
 
 /* av_pkt_dump_log()?? */
 void dump_packet(AVPacket *p, AVStream * ps)
@@ -1650,6 +1650,158 @@ bool prepare_filenames(thumbnail &tn, char *file)
     return true;
 }
 
+int determin_video_index(AVFormatContext *pFormatCtx)
+{
+    for (int i = 0; i < pFormatCtx->nb_streams; i++) {
+      if (AVMEDIA_TYPE_VIDEO == pFormatCtx->streams[i]->codec->codec_type) {
+        return i;
+      }
+    }
+    return -1;
+    
+  //  for (i=0;i<pFormatCtx->nb_streams; i++)pFormatCtx->streams[i]->discard = AVDISCARD_ALL;
+  //  return av_find_best_stream(pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+}
+
+bool calc_duration(AVFormatContext *pFormatCtx, int video_index, AVCodecContext *pCodecCtx, AVFrame *pFrame, int *t_timestamp, double *duration)
+{
+    *duration = (double) pFormatCtx->duration / AV_TIME_BASE; // can be unknown & can be incorrect (e.g. .vob files)
+    if (*duration <= 0) {
+        *duration = guess_duration(pFormatCtx, video_index, pCodecCtx, pFrame);
+        // have to turn timestamping off because it'll be incorrect
+        if (1 == gb_t_timestamp) { // on
+            *t_timestamp = 0;
+            av_log(NULL, AV_LOG_ERROR, "  turning time stamp off because of duration\n");
+        }
+    }
+    if (*duration <= 0) {
+        av_log(NULL, AV_LOG_ERROR, "  duration is unknown: %.2f\n", *duration);
+        return false;
+    }
+    return true;
+}
+
+bool calc_net_duration(double duration, double *net_duration)
+{
+    /* calc options */
+    // FIXME: make sure values are ok when movies are very short or very small
+    if (gb_C_cut > 0) {
+        *net_duration = gb_C_cut;
+        if (*net_duration + gb_B_begin > duration) {
+            *net_duration = duration - gb_B_begin;
+            av_log(NULL, AV_LOG_ERROR, "  -C %.2f s is too long, using %.2f s.\n", gb_C_cut, *net_duration);
+        }
+    } else {
+        //double net_duration = duration - start_time - gb_B_begin - gb_E_end;
+        *net_duration = duration - gb_B_begin - gb_E_end; // DVD
+        if (*net_duration <= 0) {
+            av_log(NULL, AV_LOG_ERROR, "  duration: %.2f s, net duration after -B & -E is negative: %.2f s.\n", duration, *net_duration);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool adjust_thumbnail_sizes(thumbnail &tn, int scaled_src_width, int scaled_src_height, double net_duration)
+{
+    tn.column = gb_c_column + 1; // will be -1 in the loop
+    tn.step = -99999; // seconds
+    tn.row = -99999;
+    tn.width = -99999;
+    tn.shot_width = -99999;
+    tn.shot_height = -99999;
+    
+    
+    // reduce # of column until we meet minimum height except when movie is too small
+    while (tn.shot_height < gb_h_height && tn.column > 0 && tn.shot_width != scaled_src_width) {
+        tn.column--;
+        if (gb_s_step == 0) { // step evenly to get column x row
+            tn.step = net_duration / (tn.column * gb_r_row + 1);
+        } else {
+            tn.step = gb_s_step;
+        }
+        if (gb_r_row > 0) {
+            tn.row = gb_r_row;
+            // if # of columns is reduced, we should increase # of rows so # of tiles would be almost the same
+            // could some users not want this?
+        } else { // as many rows as needed
+            tn.row = floor(net_duration / tn.column / tn.step + 0.5); // round nearest
+        }
+        if (tn.row < 1) {
+            tn.row = 1;
+        }
+
+        // make sure last row is full
+        tn.step = net_duration / (tn.column * tn.row + 1);
+
+        int full_width = tn.column * (scaled_src_width + gb_g_gap) + gb_g_gap;
+        if (gb_w_width > 0 && gb_w_width < full_width) {
+            tn.width = gb_w_width;
+        } else {
+            tn.width = full_width;
+        }
+        tn.shot_width = floor((tn.width - gb_g_gap*(tn.column+1)) / (double)tn.column + 0.5); // round nearest
+        tn.shot_width -= tn.shot_width%2; // floor to even number
+        tn.shot_height = floor((double) scaled_src_height / scaled_src_width * tn.shot_width + 0.5); // round nearest
+        tn.shot_height -= tn.shot_height%2; // floor to even number
+        tn.center_gap = (tn.width - gb_g_gap*(tn.column+1) - tn.shot_width * tn.column) / 2.0;
+    }
+    if (tn.step == 0) {
+        av_log(NULL, AV_LOG_ERROR, "  step is zero; movie is too short?\n");
+        return false;
+    }
+    if (tn.column != gb_c_column) {
+        av_log(NULL, LOG_INFO, "  changing # of column to %d to meet minimum height of %d; see -h option\n", tn.column, gb_h_height);
+    }
+    if (gb_w_width > 0 && gb_w_width != tn.width) {
+        av_log(NULL, LOG_INFO, "  changing width to %d to match movie's size (%dx%d)\n", tn.width, scaled_src_width, tn.column);
+    }
+    
+    return true;
+}
+
+bool adjust_thumbnail_sizes2(thumbnail &tn, char *all_text)
+{
+    tn.txt_height = image_string_height(all_text, gb_f_fontname, gb_F_info_font_size) + gb_g_gap;
+    tn.height = tn.shot_height*tn.row + gb_g_gap*(tn.row+1) + tn.txt_height;
+    av_log(NULL, LOG_INFO, "  step: %d s; # tiles: %dx%d, tile size: %dx%d; total size: %dx%d\n", 
+        tn.step, tn.column, tn.row, tn.shot_width, tn.shot_height, tn.width, tn.height);
+
+    // jpeg seems to have max size of 65500 pixels
+    if (tn.width > 65500 || tn.height > 65500) {
+        av_log(NULL, AV_LOG_ERROR, "  jpeg only supports max size of 65500\n");
+        return false;
+    }
+    
+    return true;
+}
+
+bool prepare_temp_frame(thumbnail &tn, AVCodecContext *pCodecCtx, uint8_t **ppRgb_buffer, AVFrame **ppFrameRGB, struct SwsContext **ppSwsCtx)
+{
+    /* prepare for resize & conversion to PIX_FMT_RGB24 */
+    *ppFrameRGB = avcodec_alloc_frame();
+    if (*ppFrameRGB == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "  couldn't allocate a video frame\n");
+        return false;
+    }
+    int rgb_bufsize = avpicture_get_size(PIX_FMT_RGB24, tn.shot_width, tn.shot_height);
+    *ppRgb_buffer = (uint8_t *)av_malloc(rgb_bufsize);
+    if (NULL == *ppRgb_buffer) {
+        av_log(NULL, AV_LOG_ERROR, "  av_malloc %d bytes failed\n", rgb_bufsize);
+        return false;
+    }
+    avpicture_fill((AVPicture *) *ppFrameRGB, *ppRgb_buffer, PIX_FMT_RGB24,
+        tn.shot_width, tn.shot_height);
+    *ppSwsCtx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
+        tn.shot_width, tn.shot_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
+    if (NULL == *ppSwsCtx) { // sws_getContext is not documented
+        av_log(NULL, AV_LOG_ERROR, "  sws_getContext failed\n");
+        return false;
+    }
+  
+  return true;
+}
+
 /*
 */
 void make_thumbnail(char *file)
@@ -1700,13 +1852,7 @@ void make_thumbnail(char *file)
     char *out_filename_w = tn.out_filename;
     char *info_filename_w = tn.info_filename;
 #endif
-    /*
-    out_fp = _tfopen(out_filename_w, _TEXT("wb"));
-    if (NULL == out_fp) {
-        av_log(NULL, AV_LOG_ERROR, "\n%s: creating output image '%s' failed: %s\n", gb_argv0, tn.out_filename, strerror(errno));
-        goto cleanup;
-    }
-    */
+
     if (NULL != gb_N_suffix) {
         info_fp = _tfopen(info_filename_w, _TEXT("wb"));
         if (NULL == info_fp) {
@@ -1737,17 +1883,7 @@ void make_thumbnail(char *file)
 
     // Find the first video stream
     // int av_find_default_stream_index(AVFormatContext *s)
-    int video_index = -1;
-    for (i = 0; i < pFormatCtx->nb_streams; i++) {
-      if (AVMEDIA_TYPE_VIDEO == pFormatCtx->streams[i]->codec->codec_type) {
-        video_index = i;
-        break;
-      }
-    }
-    
-  //  for (i=0;i<pFormatCtx->nb_streams; i++)pFormatCtx->streams[i]->discard = AVDISCARD_ALL;
-  //  video_index = av_find_best_stream(pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
-    
+    int video_index = determin_video_index(pFormatCtx);
     if (video_index == -1) {
         av_log(NULL, AV_LOG_ERROR, "  couldn't find a video stream\n");
         goto cleanup;
@@ -1797,19 +1933,9 @@ void make_thumbnail(char *file)
     // is this a codec bug? it seem this value can be in the header or in the stream.
     AVRational sample_aspect_ratio = pCodecCtx->sample_aspect_ratio;
 
-    double duration = (double) pFormatCtx->duration / AV_TIME_BASE; // can be unknown & can be incorrect (e.g. .vob files)
-    if (duration <= 0) {
-        duration = guess_duration(pFormatCtx, video_index, pCodecCtx, pFrame);
-        // have to turn timestamping off because it'll be incorrect
-        if (1 == gb_t_timestamp) { // on
-            t_timestamp = 0;
-            av_log(NULL, AV_LOG_ERROR, "  turning time stamp off because of duration\n");
-        }
-    }
-    if (duration <= 0) {
-        av_log(NULL, AV_LOG_ERROR, "  duration is unknown: %.2f\n", duration);
-        goto cleanup;
-    }
+    double duration;
+    if(!calc_duration(pFormatCtx, video_index, pCodecCtx, pFrame, &t_timestamp, &duration))goto cleanup;
+    
     int64_t duration_tb = duration / av_q2d(pStream->time_base); // in time_base unit
     double start_time = (double) pFormatCtx->start_time / AV_TIME_BASE; // in seconds
     // VTS_01_2.VOB & beyond from DVD seem to be like this
@@ -1865,20 +1991,7 @@ void make_thumbnail(char *file)
     /* calc options */
     // FIXME: make sure values are ok when movies are very short or very small
     double net_duration;
-    if (gb_C_cut > 0) {
-        net_duration = gb_C_cut;
-        if (net_duration + gb_B_begin > duration) {
-            net_duration = duration - gb_B_begin;
-            av_log(NULL, AV_LOG_ERROR, "  -C %.2f s is too long, using %.2f s.\n", gb_C_cut, net_duration);
-        }
-    } else {
-        //double net_duration = duration - start_time - gb_B_begin - gb_E_end;
-        net_duration = duration - gb_B_begin - gb_E_end; // DVD
-        if (net_duration <= 0) {
-            av_log(NULL, AV_LOG_ERROR, "  duration: %.2f s, net duration after -B & -E is negative: %.2f s.\n", duration, net_duration);
-            goto cleanup;
-        }
-    }
+    if(!calc_net_duration(duration, &net_duration))goto cleanup;
 
     /* scale according to sample_aspect_ratio. */
     int scaled_src_width, scaled_src_height;
@@ -1890,58 +2003,10 @@ void make_thumbnail(char *file)
             sample_aspect_ratio.num, sample_aspect_ratio.den);
     }
 
-    tn.column = gb_c_column + 1; // will be -1 in the loop
     int seek_mode = 1; // 1 = seek; 0 = non-seek
-    tn.step = -99999; // seconds
-    tn.row = -99999;
-    tn.width = -99999;
-    tn.shot_width = -99999;
-    tn.shot_height = -99999;
-
-    // reduce # of column until we meet minimum height except when movie is too small
-    while (tn.shot_height < gb_h_height && tn.column > 0 && tn.shot_width != scaled_src_width) {
-        tn.column--;
-        if (gb_s_step == 0) { // step evenly to get column x row
-            tn.step = net_duration / (tn.column * gb_r_row + 1);
-        } else {
-            tn.step = gb_s_step;
-        }
-        if (gb_r_row > 0) {
-            tn.row = gb_r_row;
-            // if # of columns is reduced, we should increase # of rows so # of tiles would be almost the same
-            // could some users not want this?
-        } else { // as many rows as needed
-            tn.row = floor(net_duration / tn.column / tn.step + 0.5); // round nearest
-        }
-        if (tn.row < 1) {
-            tn.row = 1;
-        }
-
-        // make sure last row is full
-        tn.step = net_duration / (tn.column * tn.row + 1);
-
-        int full_width = tn.column * (scaled_src_width + gb_g_gap) + gb_g_gap;
-        if (gb_w_width > 0 && gb_w_width < full_width) {
-            tn.width = gb_w_width;
-        } else {
-            tn.width = full_width;
-        }
-        tn.shot_width = floor((tn.width - gb_g_gap*(tn.column+1)) / (double)tn.column + 0.5); // round nearest
-        tn.shot_width -= tn.shot_width%2; // floor to even number
-        tn.shot_height = floor((double) scaled_src_height / scaled_src_width * tn.shot_width + 0.5); // round nearest
-        tn.shot_height -= tn.shot_height%2; // floor to even number
-        tn.center_gap = (tn.width - gb_g_gap*(tn.column+1) - tn.shot_width * tn.column) / 2.0;
-    }
-    if (tn.step == 0) {
-        av_log(NULL, AV_LOG_ERROR, "  step is zero; movie is too short?\n");
-        goto cleanup;
-    }
-    if (tn.column != gb_c_column) {
-        av_log(NULL, LOG_INFO, "  changing # of column to %d to meet minimum height of %d; see -h option\n", tn.column, gb_h_height);
-    }
-    if (gb_w_width > 0 && gb_w_width != tn.width) {
-        av_log(NULL, LOG_INFO, "  changing width to %d to match movie's size (%dx%d)\n", tn.width, scaled_src_width, tn.column);
-    }
+    
+    if(!adjust_thumbnail_sizes(tn, scaled_src_width, scaled_src_height, net_duration))goto cleanup;
+    
     char *all_text = get_stream_info(pFormatCtx, file, 1, sample_aspect_ratio); // FIXME: using function's static buffer
     if (NULL != info_fp) {
         fprintf(info_fp, all_text);
@@ -1955,43 +2020,16 @@ void make_thumbnail(char *file)
             fprintf(info_fp, "%s%s", gb_T_text, NEWLINE);
         }
     }
-    tn.txt_height = image_string_height(all_text, gb_f_fontname, gb_F_info_font_size) + gb_g_gap;
-    tn.height = tn.shot_height*tn.row + gb_g_gap*(tn.row+1) + tn.txt_height;
-    av_log(NULL, LOG_INFO, "  step: %d s; # tiles: %dx%d, tile size: %dx%d; total size: %dx%d\n", 
-        tn.step, tn.column, tn.row, tn.shot_width, tn.shot_height, tn.width, tn.height);
-
-    // jpeg seems to have max size of 65500 pixels
-    if (tn.width > 65500 || tn.height > 65500) {
-        av_log(NULL, AV_LOG_ERROR, "  jpeg only supports max size of 65500\n");
-        goto cleanup;
-    }
+    if(!adjust_thumbnail_sizes2(tn, all_text))goto cleanup;
 
     int evade_step = MIN(10, tn.step / 14); // seconds to evade blank screen ; max 10 s
     // FIXME: what's the min value? 1?
     if (evade_step <= 0) {
         av_log(NULL, LOG_INFO, "  step is less than 14 s; blank & blur evasion is turned off.\n");
     }
-
+    
     /* prepare for resize & conversion to PIX_FMT_RGB24 */
-    pFrameRGB = avcodec_alloc_frame();
-    if (pFrameRGB == NULL) {
-        av_log(NULL, AV_LOG_ERROR, "  couldn't allocate a video frame\n");
-        goto cleanup;
-    }
-    int rgb_bufsize = avpicture_get_size(PIX_FMT_RGB24, tn.shot_width, tn.shot_height);
-    rgb_buffer = (uint8_t *)av_malloc(rgb_bufsize);
-    if (NULL == rgb_buffer) {
-        av_log(NULL, AV_LOG_ERROR, "  av_malloc %d bytes failed\n", rgb_bufsize);
-        goto cleanup;
-    }
-    avpicture_fill((AVPicture *) pFrameRGB, rgb_buffer, PIX_FMT_RGB24,
-        tn.shot_width, tn.shot_height);
-    pSwsCtx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
-        tn.shot_width, tn.shot_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
-    if (NULL == pSwsCtx) { // sws_getContext is not documented
-        av_log(NULL, AV_LOG_ERROR, "  sws_getContext failed\n");
-        goto cleanup;
-    }
+    if(!prepare_temp_frame(tn, pCodecCtx, &rgb_buffer, &pFrameRGB, &pSwsCtx))goto cleanup;
 
     /* create the output image */
     {
