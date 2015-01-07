@@ -1802,6 +1802,61 @@ bool prepare_temp_frame(thumbnail &tn, AVCodecContext *pCodecCtx, uint8_t **ppRg
   return true;
 }
 
+bool prepare_output_image(thumbnail &tn)
+{
+  PixelWand *bgw1 = NewPixelWand();
+  char colstr1[12];
+  wsprintfA(colstr1, "#%02X%02X%02X", gb_k_bcolor.r, gb_k_bcolor.g, gb_k_bcolor.b);
+  PixelSetColor(bgw1, colstr1);
+  if (MagickNewImage(tn.out_ip, tn.width, tn.height, bgw1) == MagickFalse) {
+    av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", tn.width, tn.height);
+    return false;
+  }
+  //int background = gdImageColorResolve(tn.out_ip, gb_k_bcolor.r, gb_k_bcolor.g, gb_k_bcolor.b); // set backgroud
+  //gdImageFilledRectangle(tn.out_ip, 0, 0, tn.width, tn.height, background);
+
+  bgw1 = DestroyPixelWand(bgw1);
+  
+  return true;
+}
+
+bool draw_infotext(thumbnail &tn, char *all_text)
+{
+  if (NULL != all_text && strlen(all_text) > 0) {
+      rgb_color wcol = COLOR_WHITE;
+      char *str_ret = image_string(tn.out_ip, 
+          gb_f_fontname, gb_F_info_color, gb_F_info_font_size, 
+          gb_L_info_location, gb_g_gap, all_text, 0, wcol);
+      if (NULL != str_ret) {
+          av_log(NULL, AV_LOG_ERROR, "  %s; font problem? see -f option\n", str_ret);
+          return false;
+      }
+  }
+  
+  
+  return true;
+}
+
+int determin_seek_mode(AVFormatContext *pFormatCtx)
+{
+  int seek_mode = 1; // 1 = seek; 0 = non-seek
+
+  if (1 == gb_z_seek) {
+      seek_mode = 1;
+  }
+  if (1 == gb_Z_nonseek) {
+      seek_mode = 0;
+      av_log(NULL, LOG_INFO, "  *** using non-seek mode -- slower but more accurate timing.\n");
+  }
+  
+  if(seek_mode)
+  {
+    seek_mode = /*!*/!(pFormatCtx->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", pFormatCtx->iformat->name);
+  }
+  
+  return seek_mode;
+}
+
 /*
 */
 void make_thumbnail(char *file)
@@ -2002,8 +2057,6 @@ void make_thumbnail(char *file)
             pCodecCtx->width, pCodecCtx->height, scaled_src_width, scaled_src_height, 
             sample_aspect_ratio.num, sample_aspect_ratio.den);
     }
-
-    int seek_mode = 1; // 1 = seek; 0 = non-seek
     
     if(!adjust_thumbnail_sizes(tn, scaled_src_width, scaled_src_height, net_duration))goto cleanup;
     
@@ -2032,32 +2085,10 @@ void make_thumbnail(char *file)
     if(!prepare_temp_frame(tn, pCodecCtx, &rgb_buffer, &pFrameRGB, &pSwsCtx))goto cleanup;
 
     /* create the output image */
-    {
-      PixelWand *bgw1 = NewPixelWand();
-      char colstr1[12];
-      wsprintfA(colstr1, "#%02X%02X%02X", gb_k_bcolor.r, gb_k_bcolor.g, gb_k_bcolor.b);
-      PixelSetColor(bgw1, colstr1);
-      if (MagickNewImage(tn.out_ip, tn.width, tn.height, bgw1) == MagickFalse) {
-        av_log(NULL, AV_LOG_ERROR, "  gdImageCreateTrueColor failed: width %d, height %d\n", tn.width, tn.height);
-        goto cleanup;
-      }
-      //int background = gdImageColorResolve(tn.out_ip, gb_k_bcolor.r, gb_k_bcolor.g, gb_k_bcolor.b); // set backgroud
-      //gdImageFilledRectangle(tn.out_ip, 0, 0, tn.width, tn.height, background);
-
-      bgw1 = DestroyPixelWand(bgw1);
-    }
+    if(!prepare_output_image(tn))goto cleanup;
 
     /* add info & text */ // do this early so when font is not found we'll quit early
-    if (NULL != all_text && strlen(all_text) > 0) {
-        rgb_color wcol = COLOR_WHITE;
-        char *str_ret = image_string(tn.out_ip, 
-            gb_f_fontname, gb_F_info_color, gb_F_info_font_size, 
-            gb_L_info_location, gb_g_gap, all_text, 0, wcol);
-        if (NULL != str_ret) {
-            av_log(NULL, AV_LOG_ERROR, "  %s; font problem? see -f option\n", str_ret);
-            goto cleanup;
-        }
-    }
+    if(!draw_infotext(tn, all_text))goto cleanup;
 
     /* alloc dynamic thumb data */
     if (-1 == thumb_alloc_dynamic(&tn)) {
@@ -2065,18 +2096,7 @@ void make_thumbnail(char *file)
         goto cleanup;
     }
 
-    if (1 == gb_z_seek) {
-        seek_mode = 1;
-    }
-    if (1 == gb_Z_nonseek) {
-        seek_mode = 0;
-        av_log(NULL, LOG_INFO, "  *** using non-seek mode -- slower but more accurate timing.\n");
-    }
-    
-    if(seek_mode)
-    {
-      seek_mode = /*!*/!(pFormatCtx->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", pFormatCtx->iformat->name);
-    }
+    int seek_mode = determin_seek_mode(pFormatCtx); // 1 = seek; 0 = non-seek
 
     /* decode & fill in the shots */
   restart:
