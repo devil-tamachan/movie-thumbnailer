@@ -2163,16 +2163,6 @@ void make_thumbnail(char *file)
             //av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
         } else { // non-seek mode -- we keep decoding until we get to the next shot
           found_pts = 0;
-
-          //int64_t bytepos = maxfilesize * idx / thumb_nb;
-          //int64_t seek_min    = 0;//INT64_MIN;
-          //int64_t seek_max    = maxfilesize;//INT64_MAX;
-          //av_log(NULL, LOG_INFO, "AVSEEK_FLAG_BYTE: byte_pos: %"PRId64", file_size: %"PRId64", duration_tb: %"PRId64"\n", bytepos, (pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0), duration_tb);
-          //while(/*av_seek_frame(pFormatCtx, video_index, bytepos, AVSEEK_FLAG_BYTE)*/avformat_seek_file(pFormatCtx, video_index, seek_min, bytepos, seek_max, AVSEEK_FLAG_BYTE) < 0 && bytepos < maxfilesize)
-          //{
-          //  bytepos++;
-          //  av_log(NULL, LOG_INFO, "AVSEEK_FLAG_BYTE: byte_pos: %"PRId64", file_size: %"PRId64", duration_tb: %"PRId64"\n", bytepos, (pFormatCtx->pb ? avio_size(pFormatCtx->pb) : 0), duration_tb);
-          //}
          
             while (found_pts < eff_target) {
                 // we should check if it's taking too long for this loop. FIXME
@@ -2228,31 +2218,6 @@ void make_thumbnail(char *file)
             idx, found_pts, calc_time(found_pts, pStream->time_base, start_time), 
             eff_target, calc_time(eff_target, pStream->time_base, start_time), decode_time);
         av_log(NULL, AV_LOG_VERBOSE, "approx. decoded frames/s %.2f\n", tn.step * 30 / decode_time); // DEBUG
-        /*
-        char debug_filename[2048]; // DEBUG
-        sprintf(debug_filename, "%s_decoded%05d.jpg", tn.out_filename, nb_shots - 1);
-        save_AVFrame(pFrame, pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, 
-            debug_filename, pCodecCtx->width, pCodecCtx->height);
-        */
-
-        /* doesn't work very well -- tends to make evade_step too large
-        if (evade_step > 0) {
-            // this shot is the same as previous seek -- not good.
-            if (found_pts == prevfound_pts) {
-                // maybe evade_step is too small
-                if (evade_step < 20) { // FIXME
-                    evade_step *= 1.2; // FIXME
-                }
-            }
-            // found diffs from target > evade_step
-            if (found_diff <= -evade_step || found_diff >= evade_step) {
-                // maybe evade_step is too small
-                if (evade_step < 20 && found_diff < 20) { // FIXME
-                    //evade_step = 1 + ceiling(found_diff); // FIXME
-                }
-            }
-        }
-        */
 
         // got same picture as previous shot, we'll skip it
         if (prevshot_pts == found_pts && 0 == evade_try && seek_mode) {
@@ -2265,11 +2230,6 @@ void make_thumbnail(char *file)
         /* convert to PIX_FMT_RGB24 & resize */
         sws_scale(pSwsCtx, pFrame->data, pFrame->linesize, 0, pCodecCtx->height, 
             pFrameRGB->data, pFrameRGB->linesize);
-        /*
-        sprintf(debug_filename, "%s_resized%05d.jpg", tn.out_filename, nb_shots - 1); // DEBUG
-        save_AVFrame(pFrameRGB, tn.shot_width, tn.shot_height, PIX_FMT_RGB24, 
-            debug_filename, tn.shot_width, tn.shot_height);
-        */
 
         /* if blank screen, try again */
         // FIXME: make sure this'll work when step is small
@@ -2424,26 +2384,12 @@ void make_thumbnail(char *file)
     }
     tn.out_saved = 1;
 
- /*   struct timeval tfinish;
-    gettimeofday(&tfinish, NULL); // calendar time; effected by load & io & etc.
-    double diff_time = (tfinish.tv_sec + tfinish.tv_usec/1000000.0) - (tstart.tv_sec + tstart.tv_usec/1000000.0);
-    // previous version reported # of decoded shots/s; now we report the # of final shots/s
-    //av_log(NULL, LOG_INFO, "  avg. %.2f shots/s; output file: %s\n", nb_shots / diff_time, tn.out_filename);
-    av_log(NULL, LOG_INFO, "  %.2f s, %.2f shots/s; output: %s\n", 
-        diff_time, (tn.idx + 1) / diff_time, tn.out_filename);
-*/
   cleanup:
     if (NULL != ip)
       ip = DestroyMagickWand(ip);
     if (NULL != tn.out_ip)
       tn.out_ip = DestroyMagickWand(tn.out_ip);
 
-    /*if (NULL != out_fp) {
-        fclose(out_fp);
-        if (1 != tn.out_saved) {
-            _tunlink(out_filename_w);
-        }
-    }*/
     if (NULL != info_fp) {
         fclose(info_fp);
         if (1 != tn.out_saved) {
