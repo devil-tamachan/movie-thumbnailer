@@ -251,8 +251,8 @@ int gb_p_pause = GB_P_PAUSE; // pause before exiting; 1 pause; 0 dont pause
 int gb_P_dontpause = GB_P_DONTPAUSE; // dont pause; overide gb_p_pause
 #define GB_Q_QUIET 0
 int gb_q_quiet = GB_Q_QUIET; // 1 on; 0 off
-#define GB_R_ROW 0
-//#define GB_R_ROW 5
+//#define GB_R_ROW 0
+#define GB_R_ROW 5
 int gb_r_row = GB_R_ROW; // 0 = as many rows as needed
 #define GB_S_STEP 0
 //#define GB_S_STEP 120
