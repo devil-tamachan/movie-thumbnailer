@@ -87,7 +87,7 @@ extern "C"{
 //#include <vector>
 
 //#include "gd.h"
-#include <wand/MagickWand.h>
+#include <MagickWand/MagickWand.h>
 
 
 #define UTF8_FILENAME_SIZE (FILENAME_MAX*4)
@@ -647,7 +647,7 @@ void FrameRGB_2_gdImage(AVFrame *pFrame, MagickWand *ip)
   int x, y;
   size_t imgw = 0;
   PixelWand **pixels;
-  MagickPixelPacket pi;
+  PixelInfo pi;
   for (y = 0; y < MagickGetImageHeight(ip); y++) {
       pixels = PixelGetNextIteratorRow(it, &imgw);
       for (x = 0; x < imgw; x++) {
@@ -657,7 +657,7 @@ void FrameRGB_2_gdImage(AVFrame *pFrame, MagickWand *ip)
         pi.red = (((MagickRealType)(src[idx]) / (MagickRealType)0xFF))*QuantumRange;
         pi.green = (((MagickRealType)(src[idx + 1]) / (MagickRealType)0xFF))*QuantumRange;
         pi.blue = (((MagickRealType)(src[idx + 2]) / (MagickRealType)0xFF))*QuantumRange;
-        PixelSetMagickColor(pixels[x], &pi);
+        PixelSetPixelColor(pixels[x], &pi);
       }
       MagickBooleanType bRet = PixelSyncIterator(it);
       src += imgw * 3;
@@ -730,7 +730,7 @@ void thumb_add_shot(thumbnail *ptn, MagickWand *ip, int idx, int64_t pts)
     int dstX = idx%ptn->column * (ptn->shot_width+gb_g_gap) + gb_g_gap + ptn->center_gap;
     int dstY = idx/ptn->column * (ptn->shot_height+gb_g_gap) + gb_g_gap
         + ((3 == gb_L_info_location || 4 == gb_L_info_location) ? ptn->txt_height : 0);
-    MagickCompositeImage(ptn->out_ip, ip, SrcOverCompositeOp, dstX, dstY);
+    MagickCompositeImage(ptn->out_ip, ip, SrcOverCompositeOp, MagickTrue, dstX, dstY);
     //gdImageCopy(ptn->out_ip, ip, dstX, dstY, 0, 0, ptn->shot_width, ptn->shot_height);
     ptn->idx = idx;
     ptn->ppts[idx] = pts;
@@ -762,7 +762,7 @@ void FrameRGB_convolution(AVFrame *pFrame, int width, int height,
 
     size_t imgw = 0;
     PixelWand **pixels;
-    MagickPixelPacket pi;
+    PixelInfo pi;
     PixelIterator *it = NewPixelIterator(ip);
 
     for (y = ybegin; y <= yend; y++) {
@@ -798,7 +798,7 @@ void FrameRGB_convolution(AVFrame *pFrame, int width, int height,
             pi.red = ((MagickRealType)new_r) / ((MagickRealType)0xFF) *QuantumRange;
             pi.green = ((MagickRealType)new_g) / ((MagickRealType)0xFF) *QuantumRange;
             pi.blue = ((MagickRealType)new_b) / ((MagickRealType)0xFF) *QuantumRange;
-            PixelSetMagickColor(pixels[x], &pi);
+            PixelSetPixelColor(pixels[x], &pi);
             //gdImageSetPixel(ip, x, y, gdImageColorResolve(ip, (int)new_r, (int)new_g, (int)new_b));
         }
         PixelSyncIterator(it);
@@ -815,7 +815,7 @@ float cmp_edge(MagickWand *ip, int xbegin, int ybegin, int xend, int yend)
     int i, j;
     size_t imgw = 0;
     PixelWand **pixels;
-    MagickPixelPacket pi;
+    PixelInfo pi;
     PixelIterator *it = NewPixelIterator(ip);
     for (j = ybegin; j <= yend; j++) {
       PixelSetIteratorRow(it, j);
