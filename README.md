@@ -3,8 +3,7 @@ movie-thumbnailer
 
 Mod version. [Original version -> http://moviethumbnail.sourceforge.net/][1]
 
-VC2010‚ÅƒRƒ“ƒpƒCƒ‹‰Â”\B[ImageMagick][3]‚Æ[ffmpeg][4]‚Ìdll/lib‚ğ‚Æ‚Á‚Ä—ˆ‚ê‚ÎOKB
-/OPT:NOREF‚ÅƒRƒ“ƒpƒCƒ‹‚µ‚È‚¢‚ÆReleaseƒrƒ‹ƒh‚ÅƒNƒ‰ƒbƒVƒ…‚·‚é‚Ì‚Å’ˆÓ
+VC2010ã§ã‚³ãƒ³ãƒ‘ã‚¤ãƒ«å¯èƒ½ã€‚[ImageMagick][3]ã¨[ffmpeg][4]ã®dll/libã‚’ã¨ã£ã¦æ¥ã‚Œã°OKã€‚
 
 [Download Windows Binary][2]
 
