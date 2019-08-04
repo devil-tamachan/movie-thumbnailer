@@ -269,8 +269,8 @@ int gb_V = GB_V_VERBOSE; // 1 on; 0 off
 int gb_w_width = GB_W_WIDTH; // 0 = column * movie width
 #define GB_W_OVERWRITE 1
 int gb_W_overwrite = GB_W_OVERWRITE; // 1 = overwrite; 0 = dont overwrite
-#define GB_Z_SEEK 1
-//#define GB_Z_SEEK 0
+//#define GB_Z_SEEK 1
+#define GB_Z_SEEK 0
 int gb_z_seek = GB_Z_SEEK; // always use seek mode; 1 on; 0 off
 #define GB_Z_NONSEEK 0
 int gb_Z_nonseek = GB_Z_NONSEEK; // always use non-seek mode; 1 on; 0 off
@@ -1353,7 +1353,14 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
         //|| (1 == key_only && 1 != pFrame->key_frame); // is there a reason why not use this? t_warhawk_review_gt_h264.mov (svq3) seems to set only pict_type
         av_free_packet(&packet)) {
 
-        if (av_read_frame(pFormatCtx, &packet) < 0) {
+        const int retReadFrame = av_read_frame(pFormatCtx, &packet);
+        if (retReadFrame < 0) {
+          av_log(NULL, AV_LOG_ERROR, "  Error av_read_frame ret: %d\n", retReadFrame);
+          if(retReadFrame == (int)AVERROR_EOF)
+          {
+            av_log(NULL, AV_LOG_ERROR, "  Error EOF!\n");
+            return 0;
+          }
           //if ((pFormatCtx->pb->error) != 0)return -1;
           if (pFormatCtx->pb && pFormatCtx->pb->error)return -1;
           else {
@@ -1551,6 +1558,7 @@ assume flags can be either 0 or AVSEEK_FLAG_BACKWARD
 */
 int really_seek(AVFormatContext *pFormatCtx, int index, int64_t timestamp, int flags, double duration)
 {
+    //flags = AVSEEK_FLAG_BACKWARD;
     assert(flags == 0 || flags == AVSEEK_FLAG_BACKWARD);
     int ret;
     
@@ -1792,7 +1800,7 @@ bool adjust_thumbnail_sizes2(thumbnail &tn, char *all_text)
 {
     tn.txt_height = image_string_height(all_text, gb_f_fontname, gb_F_info_font_size) + gb_g_gap;
     tn.height = tn.shot_height*tn.row + gb_g_gap*(tn.row+1) + tn.txt_height;
-    av_log(NULL, LOG_INFO, "  step: %d s; # tiles: %dx%d, tile size: %dx%d; total size: %dx%d\n", 
+    av_log(NULL, LOG_INFO, "  step: %.2f s; # tiles: %dx%d, tile size: %dx%d; total size: %dx%d\n", 
         tn.step, tn.column, tn.row, tn.shot_width, tn.shot_height, tn.width, tn.height);
 
     // jpeg seems to have max size of 65500 pixels
@@ -2137,7 +2145,7 @@ void make_thumbnail(char *file)
     int evade_try = 0; // blank screen evasion index
     double avg_evade_try = 0; // average
     int direction = 0; // seek direction (seek flags)
-    seek_target = (tn.step + start_time + gb_B_begin) / av_q2d(pStream->time_base);
+    seek_target = (/*tn.step +*/ start_time + gb_B_begin) / av_q2d(pStream->time_base);
     int idx = 0; // idx = thumb_idx
     int thumb_nb = tn.row * tn.column; // thumb_nb = # of shots we need
     int64_t prevshot_pts = -1; // pts of previous good shot
@@ -2174,19 +2182,31 @@ void make_thumbnail(char *file)
         //struct timeval dstart; // DEBUG
         //gettimeofday(&dstart, NULL); // calendar time; effected by load & io & etc. DEBUG
         if (1 == seek_mode) { // seek mode
-            ret = really_seek(pFormatCtx, video_index, eff_target, direction, duration);
+            ret = really_seek(pFormatCtx, video_index, eff_target, AVSEEK_FLAG_BACKWARD/*direction*/, duration);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR, "  seeking to to %.2f s failed\n", calc_time(eff_target, pStream->time_base, start_time));
                 goto cleanup;
             }
             avcodec_flush_buffers(pCodecCtx);
 
-            ret = read_and_decode(pFormatCtx, video_index, pCodecCtx, pFrame, &found_pts, 1, 0);
+            /*ret = read_and_decode(pFormatCtx, video_index, pCodecCtx, pFrame, &found_pts, 1, 0);
             if (0 == ret) { // end of file
                 goto eof;
             } else if (ret < 0) { // error
                 av_log(NULL, AV_LOG_ERROR, "  read_and_decode failed!\n");
                 goto cleanup;
+            }*/
+         
+            while (found_pts < eff_target) {
+                // we should check if it's taking too long for this loop. FIXME
+                ret = read_and_decode(pFormatCtx, video_index, pCodecCtx, pFrame, &found_pts, 0, 0);
+                if (0 == ret) { // end of file
+                    goto eof;
+                } else if (ret < 0) { // error
+                    av_log(NULL, AV_LOG_ERROR, "  read_and_decode failed!\n");
+                    goto cleanup;
+                }
+                //av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
             }
             //av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
         } else { // non-seek mode -- we keep decoding until we get to the next shot
@@ -2330,12 +2350,13 @@ void make_thumbnail(char *file)
             
             /* stamp idx & blank & edge for debugging */
             if (gb_v_verbose > 0) {
-                char idx_str[10]; // FIXME
+                char *idx_str = (char *)malloc(1000); // FIXME
                 static rgb_color wcol = COLOR_WHITE;
                 static rgb_color bcol = COLOR_BLACK;
                 sprintf(idx_str, "idx: %d, blank: %.2f\n%.6f  %.6f\n%.6f  %.6f\n%.6f  %.6f", 
                     idx, blank, edge[0], edge[1], edge[2], edge[3], edge[4], edge[5]);
                 image_string(ip, gb_f_fontname, wcol, gb_F_ts_font_size, 2, 0, idx_str, 1, bcol);
+                free(idx_str);
             }
         }
 
@@ -3120,6 +3141,7 @@ int main(int argc, char *argv[])
         av_log(NULL, AV_LOG_ERROR, "%s: -D requires -b arg to be less than 1\n", gb_argv0);
         parse_error += 1;
     }
+    if(gb_z_seek == 0 && gb_Z_nonseek == 0)gb_z_seek = 1;
     if (gb_z_seek == 1 && gb_Z_nonseek == 1) {
         av_log(NULL, AV_LOG_ERROR, "%s: option -z and -Z cant be used together\n", gb_argv0);
         parse_error += 1;
