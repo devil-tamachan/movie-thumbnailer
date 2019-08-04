@@ -61,8 +61,6 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#define STATIC_GETOPT
-
 #if defined(WIN32)
 #include <time.h>
 #if _MSC_VER < 1800
@@ -84,10 +82,8 @@ extern "C"{
 #include "libswscale/swscale.h"
 }
 
-//#include <vector>
-
 //#include "gd.h"
-#include <MagickWand/MagickWand.h>
+#include <wand/MagickWand.h>
 
 
 #define UTF8_FILENAME_SIZE (FILENAME_MAX*4)
@@ -173,8 +169,7 @@ typedef struct thumbnail
     int width, height;
     int txt_height;
     int column, row;
-    double step;
-    //int step;
+    int step;
     int shot_width, shot_height;
     int center_gap; // horizontal gap to center the shots
     int idx; // index of the last shot; -1 = no shot
@@ -198,8 +193,7 @@ AVRational gb_a_ratio = GB_A_RATIO;
 double gb_b_blank = GB_B_BLANK;
 #define GB_B_BEGIN 0.0
 double gb_B_begin = GB_B_BEGIN; // skip this seconds from the beginning
-//#define GB_C_COLUMN 3
-#define GB_C_COLUMN 5
+#define GB_C_COLUMN 3
 int gb_c_column = GB_C_COLUMN;
 #define GB_C_CUT -1
 double gb_C_cut = GB_C_CUT; // cut movie; <=0 off
@@ -241,21 +235,19 @@ char *gb_N_suffix = GB_N_SUFFIX; // info text file suffix
 char *gb_o_suffix = GB_O_SUFFIX;
 #define GB_O_OUTDIR NULL
 char *gb_O_outdir = GB_O_OUTDIR;
-//#ifdef WIN32
-//    #define GB_P_PAUSE 1
-//#else
+#ifdef WIN32
+    #define GB_P_PAUSE 1
+#else
     #define GB_P_PAUSE 0
-//#endif
+#endif
 int gb_p_pause = GB_P_PAUSE; // pause before exiting; 1 pause; 0 dont pause
 #define GB_P_DONTPAUSE 0
 int gb_P_dontpause = GB_P_DONTPAUSE; // dont pause; overide gb_p_pause
 #define GB_Q_QUIET 0
 int gb_q_quiet = GB_Q_QUIET; // 1 on; 0 off
-//#define GB_R_ROW 0
-#define GB_R_ROW 5
+#define GB_R_ROW 0
 int gb_r_row = GB_R_ROW; // 0 = as many rows as needed
-#define GB_S_STEP 0
-//#define GB_S_STEP 120
+#define GB_S_STEP 120
 int gb_s_step = GB_S_STEP; // less than 0 = every frame; 0 = step evenly to get column x row
 #define GB_T_TIME 1
 int gb_t_timestamp = GB_T_TIME; // 1 on; 0 off
@@ -264,12 +256,10 @@ char *gb_T_text = GB_T_TEXT;
 #define GB_V_VERBOSE 0
 int gb_v_verbose = GB_V_VERBOSE; // 1 on; 0 off
 int gb_V = GB_V_VERBOSE; // 1 on; 0 off
-//#define GB_W_WIDTH 1024
-#define GB_W_WIDTH 1600
+#define GB_W_WIDTH 1024
 int gb_w_width = GB_W_WIDTH; // 0 = column * movie width
 #define GB_W_OVERWRITE 1
 int gb_W_overwrite = GB_W_OVERWRITE; // 1 = overwrite; 0 = dont overwrite
-//#define GB_Z_SEEK 1
 #define GB_Z_SEEK 0
 int gb_z_seek = GB_Z_SEEK; // always use seek mode; 1 on; 0 off
 #define GB_Z_NONSEEK 0
@@ -647,7 +637,7 @@ void FrameRGB_2_gdImage(AVFrame *pFrame, MagickWand *ip)
   int x, y;
   size_t imgw = 0;
   PixelWand **pixels;
-  PixelInfo pi;
+  MagickPixelPacket pi;
   for (y = 0; y < MagickGetImageHeight(ip); y++) {
       pixels = PixelGetNextIteratorRow(it, &imgw);
       for (x = 0; x < imgw; x++) {
@@ -657,7 +647,7 @@ void FrameRGB_2_gdImage(AVFrame *pFrame, MagickWand *ip)
         pi.red = (((MagickRealType)(src[idx]) / (MagickRealType)0xFF))*QuantumRange;
         pi.green = (((MagickRealType)(src[idx + 1]) / (MagickRealType)0xFF))*QuantumRange;
         pi.blue = (((MagickRealType)(src[idx + 2]) / (MagickRealType)0xFF))*QuantumRange;
-        PixelSetPixelColor(pixels[x], &pi);
+        PixelSetMagickColor(pixels[x], &pi);
       }
       MagickBooleanType bRet = PixelSyncIterator(it);
       src += imgw * 3;
@@ -730,7 +720,7 @@ void thumb_add_shot(thumbnail *ptn, MagickWand *ip, int idx, int64_t pts)
     int dstX = idx%ptn->column * (ptn->shot_width+gb_g_gap) + gb_g_gap + ptn->center_gap;
     int dstY = idx/ptn->column * (ptn->shot_height+gb_g_gap) + gb_g_gap
         + ((3 == gb_L_info_location || 4 == gb_L_info_location) ? ptn->txt_height : 0);
-    MagickCompositeImage(ptn->out_ip, ip, SrcOverCompositeOp, MagickTrue, dstX, dstY);
+    MagickCompositeImage(ptn->out_ip, ip, SrcOverCompositeOp, dstX, dstY);
     //gdImageCopy(ptn->out_ip, ip, dstX, dstY, 0, 0, ptn->shot_width, ptn->shot_height);
     ptn->idx = idx;
     ptn->ppts[idx] = pts;
@@ -762,7 +752,7 @@ void FrameRGB_convolution(AVFrame *pFrame, int width, int height,
 
     size_t imgw = 0;
     PixelWand **pixels;
-    PixelInfo pi;
+    MagickPixelPacket pi;
     PixelIterator *it = NewPixelIterator(ip);
 
     for (y = ybegin; y <= yend; y++) {
@@ -798,7 +788,7 @@ void FrameRGB_convolution(AVFrame *pFrame, int width, int height,
             pi.red = ((MagickRealType)new_r) / ((MagickRealType)0xFF) *QuantumRange;
             pi.green = ((MagickRealType)new_g) / ((MagickRealType)0xFF) *QuantumRange;
             pi.blue = ((MagickRealType)new_b) / ((MagickRealType)0xFF) *QuantumRange;
-            PixelSetPixelColor(pixels[x], &pi);
+            PixelSetMagickColor(pixels[x], &pi);
             //gdImageSetPixel(ip, x, y, gdImageColorResolve(ip, (int)new_r, (int)new_g, (int)new_b));
         }
         PixelSyncIterator(it);
@@ -815,7 +805,7 @@ float cmp_edge(MagickWand *ip, int xbegin, int ybegin, int xend, int yend)
     int i, j;
     size_t imgw = 0;
     PixelWand **pixels;
-    PixelInfo pi;
+    MagickPixelPacket pi;
     PixelIterator *it = NewPixelIterator(ip);
     for (j = ybegin; j <= yend; j++) {
       PixelSetIteratorRow(it, j);
@@ -1031,7 +1021,7 @@ void dump_packet(AVPacket *p, AVStream * ps)
 
 void dump_codec_context(AVCodecContext * p)
 {
-  av_log(NULL, AV_LOG_VERBOSE, "***dump_codec_context %s, time_base: %d / %d\n", avcodec_get_name(p->codec_id), 
+    av_log(NULL, AV_LOG_VERBOSE, "***dump_codec_context %s, time_base: %d / %d\n", p->codec_name, 
         p->time_base.num, p->time_base.den);
     av_log(NULL, AV_LOG_VERBOSE, "frame_number: %d, width: %d, height: %d, sample_aspect_ratio %d/%d%s\n",
         p->frame_number, p->width, p->height, p->sample_aspect_ratio.num, p->sample_aspect_ratio.den,
@@ -1294,12 +1284,6 @@ double blank_frame(AVFrame *pFrame, int width, int height)
     return same;
 }
 
-void our_free_buffer(void * opaque, uint8_t *data) {
-  AVBufferRef *ref = (AVBufferRef *)opaque;
-  av_buffer_unref(&ref);
-  av_free(data);
-}
-
 /* global */
 uint64_t gb_video_pkt_pts = AV_NOPTS_VALUE;
 /* These are called whenever we allocate a frame
@@ -1307,15 +1291,17 @@ uint64_t gb_video_pkt_pts = AV_NOPTS_VALUE;
  * a frame at the time it is allocated.
  */
 int our_get_buffer2(struct AVCodecContext *c, AVFrame *pic, int iii) {
-  AVBufferRef *ref;
-  int ret = avcodec_default_get_buffer2(c, pic, 0);
+  int ret = avcodec_default_get_buffer(c, pic);
   uint64_t *pts = (uint64_t *)av_malloc(sizeof(uint64_t));
   *pts = gb_video_pkt_pts;
   pic->opaque = pts;
-  ref = av_buffer_create((uint8_t *)pic->opaque, sizeof(int64_t), our_free_buffer, pic->buf[0], 0);
-  pic->buf[0] = ref;
   av_log(NULL, AV_LOG_VERBOSE, "*coping gb_video_pkt_pts: %"PRId64" to opaque\n", gb_video_pkt_pts);
   return ret;
+}
+
+void our_release_buffer(struct AVCodecContext *c, AVFrame *pic) {
+  if(pic) av_freep(&pic->opaque);
+  avcodec_default_release_buffer(c, pic);
 }
 
 /*
@@ -1344,7 +1330,6 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
 
     int got_picture;
     int pkt_without_pic = 0; // # of video packet read without getting a picture
-    int infloopCounter = 0;
     //for (got_picture = 0; 0 == got_picture; av_free_packet(&packet)) {
     // keep decoding until we get a key frame
     for (got_picture = 0; 0 == got_picture 
@@ -1353,24 +1338,11 @@ int read_and_decode(AVFormatContext *pFormatCtx, int video_index,
         //|| (1 == key_only && 1 != pFrame->key_frame); // is there a reason why not use this? t_warhawk_review_gt_h264.mov (svq3) seems to set only pict_type
         av_free_packet(&packet)) {
 
-        const int retReadFrame = av_read_frame(pFormatCtx, &packet);
-        if (retReadFrame < 0) {
-          av_log(NULL, AV_LOG_ERROR, "  Error av_read_frame ret: %d\n", retReadFrame);
-          if(retReadFrame == (int)AVERROR_EOF)
-          {
-            av_log(NULL, AV_LOG_ERROR, "  Error EOF!\n");
-            return 0;
-          }
+        if (av_read_frame(pFormatCtx, &packet) < 0) {
           //if ((pFormatCtx->pb->error) != 0)return -1;
           if (pFormatCtx->pb && pFormatCtx->pb->error)return -1;
-          else {
-            infloopCounter++;
-            if(infloopCounter<100)continue;
-            return -1;
-          }
+          else continue;
         }
-
-        infloopCounter = 0;
 
         // Is this a packet from the video stream?
         if (packet.stream_index != video_index) {
@@ -1558,7 +1530,6 @@ assume flags can be either 0 or AVSEEK_FLAG_BACKWARD
 */
 int really_seek(AVFormatContext *pFormatCtx, int index, int64_t timestamp, int flags, double duration)
 {
-    //flags = AVSEEK_FLAG_BACKWARD;
     assert(flags == 0 || flags == AVSEEK_FLAG_BACKWARD);
     int ret;
     
@@ -1681,17 +1652,12 @@ bool prepare_filenames(thumbnail &tn, char *file)
 
 int determin_video_index(AVFormatContext *pFormatCtx)
 {
-  int videoIdx = -1;
     for (int i = 0; i < pFormatCtx->nb_streams; i++) {
       if (AVMEDIA_TYPE_VIDEO == pFormatCtx->streams[i]->codec->codec_type) {
-        if(videoIdx==-1)videoIdx=i;
-        else {
-          if(pFormatCtx->streams[i]->codec->width > pFormatCtx->streams[videoIdx]->codec->width || pFormatCtx->streams[i]->codec->height > pFormatCtx->streams[videoIdx]->codec->height)
-            videoIdx = i;
-        }
+        return i;
       }
     }
-    return videoIdx;
+    return -1;
     
   //  for (i=0;i<pFormatCtx->nb_streams; i++)pFormatCtx->streams[i]->discard = AVDISCARD_ALL;
   //  return av_find_best_stream(pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
@@ -1750,8 +1716,7 @@ bool adjust_thumbnail_sizes(thumbnail &tn, int scaled_src_width, int scaled_src_
     while (tn.shot_height < gb_h_height && tn.column > 0 && tn.shot_width != scaled_src_width) {
         tn.column--;
         if (gb_s_step == 0) { // step evenly to get column x row
-            tn.step = net_duration / (double)(tn.column * gb_r_row + 1);
-            tn.step = MAX(tn.step, 1.0);
+            tn.step = net_duration / (tn.column * gb_r_row + 1);
         } else {
             tn.step = gb_s_step;
         }
@@ -1767,8 +1732,7 @@ bool adjust_thumbnail_sizes(thumbnail &tn, int scaled_src_width, int scaled_src_
         }
 
         // make sure last row is full
-        tn.step = net_duration / (double)(tn.column * tn.row + 1);
-        tn.step = MAX(tn.step, 1.0);
+        tn.step = net_duration / (tn.column * tn.row + 1);
 
         int full_width = tn.column * (scaled_src_width + gb_g_gap) + gb_g_gap;
         if (gb_w_width > 0 && gb_w_width < full_width) {
@@ -1800,7 +1764,7 @@ bool adjust_thumbnail_sizes2(thumbnail &tn, char *all_text)
 {
     tn.txt_height = image_string_height(all_text, gb_f_fontname, gb_F_info_font_size) + gb_g_gap;
     tn.height = tn.shot_height*tn.row + gb_g_gap*(tn.row+1) + tn.txt_height;
-    av_log(NULL, LOG_INFO, "  step: %.2f s; # tiles: %dx%d, tile size: %dx%d; total size: %dx%d\n", 
+    av_log(NULL, LOG_INFO, "  step: %d s; # tiles: %dx%d, tile size: %dx%d; total size: %dx%d\n", 
         tn.step, tn.column, tn.row, tn.shot_width, tn.shot_height, tn.width, tn.height);
 
     // jpeg seems to have max size of 65500 pixels
@@ -1815,21 +1779,21 @@ bool adjust_thumbnail_sizes2(thumbnail &tn, char *all_text)
 bool prepare_temp_frame(thumbnail &tn, AVCodecContext *pCodecCtx, uint8_t **ppRgb_buffer, AVFrame **ppFrameRGB, struct SwsContext **ppSwsCtx)
 {
     /* prepare for resize & conversion to PIX_FMT_RGB24 */
-    *ppFrameRGB = av_frame_alloc();
+    *ppFrameRGB = avcodec_alloc_frame();
     if (*ppFrameRGB == NULL) {
         av_log(NULL, AV_LOG_ERROR, "  couldn't allocate a video frame\n");
         return false;
     }
-    int rgb_bufsize = avpicture_get_size(AV_PIX_FMT_RGB24, tn.shot_width, tn.shot_height);
+    int rgb_bufsize = avpicture_get_size(PIX_FMT_RGB24, tn.shot_width, tn.shot_height);
     *ppRgb_buffer = (uint8_t *)av_malloc(rgb_bufsize);
     if (NULL == *ppRgb_buffer) {
         av_log(NULL, AV_LOG_ERROR, "  av_malloc %d bytes failed\n", rgb_bufsize);
         return false;
     }
-    avpicture_fill((AVPicture *) *ppFrameRGB, *ppRgb_buffer, AV_PIX_FMT_RGB24,
+    avpicture_fill((AVPicture *) *ppFrameRGB, *ppRgb_buffer, PIX_FMT_RGB24,
         tn.shot_width, tn.shot_height);
     *ppSwsCtx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt,
-        tn.shot_width, tn.shot_height, AV_PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
+        tn.shot_width, tn.shot_height, PIX_FMT_RGB24, SWS_BILINEAR, NULL, NULL, NULL);
     if (NULL == *ppSwsCtx) { // sws_getContext is not documented
         av_log(NULL, AV_LOG_ERROR, "  sws_getContext failed\n");
         return false;
@@ -1887,7 +1851,7 @@ int determin_seek_mode(AVFormatContext *pFormatCtx)
   
   if(seek_mode)
   {
-    //seek_mode = !!(pFormatCtx->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", pFormatCtx->iformat->name);
+    seek_mode = /*!*/!(pFormatCtx->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", pFormatCtx->iformat->name);
   }
   
   return seek_mode;
@@ -2145,7 +2109,7 @@ void make_thumbnail(char *file)
     int evade_try = 0; // blank screen evasion index
     double avg_evade_try = 0; // average
     int direction = 0; // seek direction (seek flags)
-    seek_target = (/*tn.step +*/ start_time + gb_B_begin) / av_q2d(pStream->time_base);
+    seek_target = (tn.step + start_time + gb_B_begin) / av_q2d(pStream->time_base);
     int idx = 0; // idx = thumb_idx
     int thumb_nb = tn.row * tn.column; // thumb_nb = # of shots we need
     int64_t prevshot_pts = -1; // pts of previous good shot
@@ -2162,18 +2126,18 @@ void make_thumbnail(char *file)
         format_time(calc_time(eff_target, pStream->time_base, start_time), time_tmp, ':');
 
         /* for some formats, previous seek might over shoot pass this seek_target; is this a bug in libavcodec? */
-        /*if (prevshot_pts > eff_target && 0 == evade_try && seek_mode) {
+        if (prevshot_pts > eff_target && 0 == evade_try && seek_mode) {
             av_log(NULL, LOG_INFO, "  skipping shot at %s because of previous seek or evasions\n", time_tmp);
             idx--;
             thumb_nb--;
             goto skip_shot;
-        }*/
+        }
 
         // make sure eff_target > previous found
         eff_target = MAX(eff_target, prevfound_pts+1);
-        /*if (eff_target > duration_tb) { // end of file
+        if (eff_target > duration_tb) { // end of file
             goto eof;
-        }*/
+        }
         format_time(calc_time(eff_target, pStream->time_base, start_time), time_tmp, ':');
         av_log(NULL, AV_LOG_VERBOSE, "\n***eff_target tb: %"PRId64", eff_target s:%.2f (%s), prevshot_pts: %"PRId64"\n", 
             eff_target, calc_time(eff_target, pStream->time_base, start_time), time_tmp, prevshot_pts);
@@ -2182,31 +2146,19 @@ void make_thumbnail(char *file)
         //struct timeval dstart; // DEBUG
         //gettimeofday(&dstart, NULL); // calendar time; effected by load & io & etc. DEBUG
         if (1 == seek_mode) { // seek mode
-            ret = really_seek(pFormatCtx, video_index, eff_target, AVSEEK_FLAG_BACKWARD/*direction*/, duration);
+            ret = really_seek(pFormatCtx, video_index, eff_target, direction, duration);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR, "  seeking to to %.2f s failed\n", calc_time(eff_target, pStream->time_base, start_time));
                 goto cleanup;
             }
             avcodec_flush_buffers(pCodecCtx);
 
-            /*ret = read_and_decode(pFormatCtx, video_index, pCodecCtx, pFrame, &found_pts, 1, 0);
+            ret = read_and_decode(pFormatCtx, video_index, pCodecCtx, pFrame, &found_pts, 1, 0);
             if (0 == ret) { // end of file
                 goto eof;
             } else if (ret < 0) { // error
                 av_log(NULL, AV_LOG_ERROR, "  read_and_decode failed!\n");
                 goto cleanup;
-            }*/
-         
-            while (found_pts < eff_target) {
-                // we should check if it's taking too long for this loop. FIXME
-                ret = read_and_decode(pFormatCtx, video_index, pCodecCtx, pFrame, &found_pts, 0, 0);
-                if (0 == ret) { // end of file
-                    goto eof;
-                } else if (ret < 0) { // error
-                    av_log(NULL, AV_LOG_ERROR, "  read_and_decode failed!\n");
-                    goto cleanup;
-                }
-                //av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
             }
             //av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
         } else { // non-seek mode -- we keep decoding until we get to the next shot
@@ -2221,7 +2173,7 @@ void make_thumbnail(char *file)
                     av_log(NULL, AV_LOG_ERROR, "  read_and_decode failed!\n");
                     goto cleanup;
                 }
-                //av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
+                av_log(NULL, LOG_INFO, "  found_pts: %"PRId64", eff_target: %"PRId64"\n", found_pts, eff_target); // DEBUG
             }
         }
         //struct timeval dfinish; // DEBUG
@@ -2350,13 +2302,12 @@ void make_thumbnail(char *file)
             
             /* stamp idx & blank & edge for debugging */
             if (gb_v_verbose > 0) {
-                char *idx_str = (char *)malloc(1000); // FIXME
+                char idx_str[10]; // FIXME
                 static rgb_color wcol = COLOR_WHITE;
                 static rgb_color bcol = COLOR_BLACK;
                 sprintf(idx_str, "idx: %d, blank: %.2f\n%.6f  %.6f\n%.6f  %.6f\n%.6f  %.6f", 
                     idx, blank, edge[0], edge[1], edge[2], edge[3], edge[4], edge[5]);
                 image_string(ip, gb_f_fontname, wcol, gb_F_ts_font_size, 2, 0, idx_str, 1, bcol);
-                free(idx_str);
             }
         }
 
@@ -3141,7 +3092,6 @@ int main(int argc, char *argv[])
         av_log(NULL, AV_LOG_ERROR, "%s: -D requires -b arg to be less than 1\n", gb_argv0);
         parse_error += 1;
     }
-    if(gb_z_seek == 0 && gb_Z_nonseek == 0)gb_z_seek = 1;
     if (gb_z_seek == 1 && gb_Z_nonseek == 1) {
         av_log(NULL, AV_LOG_ERROR, "%s: option -z and -Z cant be used together\n", gb_argv0);
         parse_error += 1;
@@ -3180,7 +3130,6 @@ int main(int argc, char *argv[])
     }
 
     /* init */
-    AVFormatContext *pFormatCtx = avformat_alloc_context();
     av_register_all();          // Register all formats and codecs
     if (gb_v_verbose > 0) {
         av_log_set_level(AV_LOG_VERBOSE);
